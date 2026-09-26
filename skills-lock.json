@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "skills": {
+    "nestjs-architecture-principles": {
+      "source": "amirtaherkhani/nestjs-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/nestjs-architecture-principles/SKILL.md",
+      "computedHash": "b11d5830422bfe91e52c31ddd78b25fa67ffd40e3b77554499719ecfce9ad758"
+    },
+    "nestjs-code-audit": {
+      "source": "amirtaherkhani/nestjs-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/nestjs-code-audit/SKILL.md",
+      "computedHash": "6c44576024414cc7137abadd5316cb9eb928dee2ceddf67c96244f251d85f32d"
+    },
+    "nestjs-feature-audit": {
+      "source": "amirtaherkhani/nestjs-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/nestjs-feature-audit/SKILL.md",
+      "computedHash": "79ef846db90fef295e181fb967ba17d83261865050d94d2fab7875ae8da22331"
+    },
+    "nestjs-features-performance": {
+      "source": "amirtaherkhani/nestjs-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/nestjs-features-performance/SKILL.md",
+      "computedHash": "56ea9343742fd04d20701dcf5983156dfe9658d4d158b11ce1f146b5d3a2ddd1"
+    },
+    "nestjs-git-commit-pr-message": {
+      "source": "amirtaherkhani/nestjs-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/nestjs-git-commit-pr-message/SKILL.md",
+      "computedHash": "693acbe5ec3b296c8f9d84f7ae38bcb5736ae1b02145751f100520d9b85bcd7a"
+    },
+    "nestjs-oop-design-patterns": {
+      "source": "amirtaherkhani/nestjs-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/nestjs-oop-design-patterns/SKILL.md",
+      "computedHash": "a08a1cff2f676f0d0bccef4b79bbdc2eb9a9ace95ef6e90cb40a5c572e0fcaf9"
+    },
+    "nestjs-professional-software-engineering": {
+      "source": "amirtaherkhani/nestjs-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/nestjs-professional-software-engineering/SKILL.md",
+      "computedHash": "59c19192bc6d76eea5425a1c34e6c5b0450a98259110c36e7f46b980f6f2bca4"
+    }
+  }
+}

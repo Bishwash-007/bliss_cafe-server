@@ -1,4 +1,8 @@
-version: "3.9"
+# Local development stack: the API plus everything it talks to.
+#
+# Started with `docker compose up -d` (see scripts/init.sh). The API is the only
+# service that runs application code; postgres and redis hold state in named
+# volumes so a `down` does not take the database with it.
 
 services:
   postgres:
@@ -6,29 +10,27 @@ services:
     container_name: bliss-cafe
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-cafe_admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cafe_pass}
-      POSTGRES_DB: ${POSTGRES_DB:-cafe_saas}
+      # Read from .env by compose's own ${VAR} substitution, so DATABASE_USER in
+      # .env is the single source of truth for the credentials rather than being
+      # duplicated here under a second name and left to drift.
+      POSTGRES_USER: ${DATABASE_USER:-cafe_admin}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-cafe_pass}
+      POSTGRES_DB: ${DATABASE_NAME:-cafe_saas}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      # Published so a host-run `npm run start:dev` can reach the same database.
+      - "${DATABASE_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # Files here run ONCE, in alphabetical order, only when the volume is first created.
-      - ./db/migrations:/docker-entrypoint-initdb.d
+      # These run ONCE, in filename order, and only when the volume is first
+      # created. That is enough for a fresh development database, and it is why
+      # scripts/init.sh re-applies db/seed/seed.sql explicitly: a second `up`
+      # will not re-run either.
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cafe_admin}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-cafe_admin} -d ${DATABASE_NAME:-cafe_saas}"]
       interval: 5s
       timeout: 5s
-      retries: 5
-
-  adminer:
-    image: adminer
-    container_name: cafe_saas_adminer
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    depends_on:
-      - postgres
+      retries: 10
 
   # Backs the Socket.IO Redis adapter, which is what lets KDS displays on one
   # instance see order events published on another. Without REDIS_URL the app
@@ -45,7 +47,67 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bliss_cafe_api
+    restart: unless-stopped
+    # `init` reaps zombies and, more importantly, makes PID 1 forward SIGTERM.
+    # The app installs its own SIGTERM/SIGINT handlers in src/main.ts to close the
+    # pool, and without this those never arrive.
+    init: true
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      # The compose SERVICE NAME, not .env's localhost. Deliberately hardcoded:
+      # substituting ${DATABASE_HOST} here would point a containerised API at the
+      # developer's own machine. Same reasoning for the redis host below.
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: ${DATABASE_USER:-cafe_admin}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-cafe_pass}
+      DATABASE_NAME: ${DATABASE_NAME:-cafe_saas}
+      REDIS_URL: redis://redis:6379
+      PG_POOL_MAX: ${PG_POOL_MAX:-10}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-30}
+      # `:?` makes compose REFUSE to start without it. The code's fallback is a
+      # hard-coded dev string, so without this an unset value yields an API
+      # happily signing tokens that anyone can forge. Single-quoted because the
+      # `:?` message itself contains colons, which an unquoted YAML scalar cannot.
+      JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required - copy .env.example to .env and set a long random value}'
+    ports:
+      - "${API_PORT:-3000}:3000"
+    depends_on:
+      # Waiting for healthy, not merely started: the API builds its pg pool at
+      # boot, and Postgres refuses connections for the first second or two while
+      # it initialises, which would otherwise crash-loop the API on a cold start.
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').connect(Number(process.env.PORT)||3000,'127.0.0.1').on('connect',function(){process.exit(0)}).on('error',function(){process.exit(1)})"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  # A database UI, for when a psql session would be more friction than it's
+  # worth. Not started by default — `docker compose --profile tools up -d`.
+  adminer:
+    image: adminer
+    container_name: cafe_saas_adminer
+    restart: unless-stopped
+    profiles: ["tools"]
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   pgdata:

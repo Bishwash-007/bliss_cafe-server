@@ -1,7 +1,45 @@
+# Keeps the build context small and stops host artefacts leaking into the image.
+# The Dockerfile COPYs explicit paths (package*.json, tsconfig*, nest-cli.json,
+# src/), so this mostly governs how much gets uploaded on every build.
+
+# Dependencies and build output are reinstalled/rebuilt inside the image.
 node_modules
 dist
-data
-.git
-.env
+build
+coverage
+*.tsbuildinfo
 
+# Secrets. `.env` must never be baked into an image — configuration is passed in
+# as real environment variables at run time. The ignore patterns matter because a
+# leaked JWT_SECRET or database password in a pushed image is permanent, even if
+# the layer is later deleted.
+.env
+.env.*
+!.env.example
+
+# Version control and CI
+.git
+.gitignore
+.github
+
+# Not needed to build or run the server: the app does not migrate on boot, and
+# `test/` is covered by CI rather than shipped.
+db
+test
+scripts
+.agent
+prompts
+
+# Logs and coverage output
+*.log
+npm-debug.log*
+logs
+.nyc_output
+
+# Editor and OS noise
 .DS_Store
+.AppleDouble
+.LSOverride
+.idea
+.vscode
+*.swp

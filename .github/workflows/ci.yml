@@ -2,15 +2,26 @@ name: Continuous Integration
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
+
+# Read-only by default. Nothing in this workflow pushes anything or needs a
+# token beyond the default.
+permissions:
+  contents: read
+
+# A new push to the same branch makes the in-flight run pointless.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test-and-build:
+  verify:
     runs-on: ubuntu-latest
+    # A hung suite should fail the run, not consume the 6-hour default.
+    timeout-minutes: 25
 
-    # Setup PostgreSQL as a service container
     services:
       postgres:
         image: postgres:16-alpine
@@ -20,12 +31,42 @@ jobs:
           POSTGRES_DB: test_db
         ports:
           - 5432:5432
-        # Ensure postgres is healthy before running steps
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U test_user -d test_db"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 10
+
+      # Not optional. Without it REDIS_URL is unset, and the KDS cross-instance
+      # suite skips itself silently — the Socket.IO adapter would go untested and
+      # CI would still be green.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      CI: true
+      NODE_ENV: test
+      # The e2e suites gate themselves on DATABASE_URL || DATABASE_HOST: with
+      # neither set they skip, so an unset value here produces a GREEN run that
+      # tested nothing. It must be set.
+      DATABASE_HOST: localhost
+      DATABASE_PORT: "5432"
+      DATABASE_USER: test_user
+      DATABASE_PASSWORD: test_password
+      # Also the admin database the e2e harness connects to before creating its
+      # own per-suite databases, so it has to be a database that exists.
+      DATABASE_NAME: test_db
+      REDIS_URL: redis://localhost:6379
+      # Throwaway. The suite never talks to a real user, and this keeps a stray
+      # token in CI logs from being a credential anywhere.
+      JWT_SECRET: ci-only-not-a-real-secret-do-not-reuse
 
     steps:
       - name: Checkout code
@@ -34,25 +75,67 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node_size: 20
-          cache: 'npm'
+          # The input is `node-version`. The previous workflow said `node_size`,
+          # which is not an input of this action at all — it was silently ignored,
+          # so the runner's default Node was used and the version under test was
+          # never actually pinned.
+          node-version: 22
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run Linter
-        run: npm run lint
-        continue-on-error: false
+      # `npm run lint` carries `--fix`, so running it here would REWRITE the
+      # working tree and then pass — style problems could never fail this job, and
+      # nothing would commit the fix. Checked explicitly instead.
+      - name: Lint
+        run: npx eslint "{src,apps,libs,test}/**/*.ts" --max-warnings 0
 
-      - name: Build Application
+      - name: Check formatting
+        run: npx prettier --check "src/**/*.ts" "test/**/*.ts"
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Build
         run: npm run build
 
-      # Run tests with temporary environment variables pointed to the service container
-      - name: Run Tests
-        env:
-          DATABASE_HOST: localhost
-          DATABASE_PORT: 5432
-          DATABASE_USER: test_user
-          DATABASE_PASSWORD: test_password
-          DATABASE_NAME: test_db
+      # Most e2e suites create and migrate their own throwaway database, but
+      # app.e2e-spec.ts boots the real AppModule against DATABASE_NAME and reads
+      # the `tenants` table. The service container's database is empty, so without
+      # this step that spec fails on a missing relation.
+      #
+      # Applied with node + pg rather than `psql < db/migrations/*.sql`: `pg` is
+      # already a dependency, so this cannot break because the runner image lacks
+      # a postgres client.
+      - name: Apply migrations to the e2e database
+        run: |
+          node -e "
+            const { readdirSync, readFileSync } = require('node:fs');
+            const { join } = require('node:path');
+            const { Client } = require('pg');
+            (async () => {
+              const client = new Client({
+                host: process.env.DATABASE_HOST,
+                port: Number(process.env.DATABASE_PORT),
+                user: process.env.DATABASE_USER,
+                password: process.env.DATABASE_PASSWORD,
+                database: process.env.DATABASE_NAME,
+              });
+              await client.connect();
+              for (const file of readdirSync('db/migrations').filter(f => f.endsWith('.sql')).sort()) {
+                await client.query(readFileSync(join('db/migrations', file), 'utf8'));
+                console.log('applied', file);
+              }
+              await client.end();
+            })().catch((e) => { console.error(e); process.exit(1); });
+          "
+
+      # Unit tests were previously never run in CI — the workflow went straight
+      # from `build` to `test:e2e`, so the ~600 unit tests only ever ran on a
+      # developer's machine.
+      - name: Unit tests
+        run: npx jest --ci --maxWorkers=2
+
+      - name: End-to-end tests
         run: npm run test:e2e
