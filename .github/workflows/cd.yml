@@ -1,8 +1,24 @@
 name: Continuous Deployment
 
+# Publishes an image for every push to main. Note this does NOT wait for the CI
+# workflow: the two are independent, so an image can be pushed for a commit whose
+# tests later fail. If that matters, switch the trigger to
+# `workflow_run: workflows: [Continuous Integration], types: [completed]` and gate
+# on `conclusion == 'success'` — deliberately not changed here, because picking
+# between branch deploys and commit deploys is a release-process decision.
 on:
   push:
-    branches: [ main ]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  # Serialise per ref, but let a newer commit supersede an in-flight push rather
+  # than queueing behind it and publishing the older image last.
+  group: cd-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
@@ -11,9 +27,7 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    timeout-minutes: 20
 
     steps:
       - name: Checkout code
@@ -34,11 +48,29 @@ jobs:
           tags: |
             type=raw,value=latest
             type=sha,format=short
+            type=ref,event=branch
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          # tags: ${{ id.meta.outputs.tags }}
-          # labels: ${{ id.meta.outputs.labels }}
+          # These two were commented out, which meant the image was built with NO
+          # tags at all — `docker/build-push-action` requires `tags` in order to
+          # push, so this step could only ever have failed. `meta.outputs.tags` is
+          # the newline-separated list the step above computed.
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Without this the build re-runs `npm ci` and `nest build` from scratch
+          # on every push. The cache is keyed on package-lock.json, so it is
+          # reused only while dependencies actually stay the same.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Produce a single-platform image. The runtime stage installs no native
+          # modules (the two in the tree are devDependencies), so arm64 is
+          # possible, but it doubles build time for a server API that will almost
+          # certainly run on amd64.
+          platforms: linux/amd64
