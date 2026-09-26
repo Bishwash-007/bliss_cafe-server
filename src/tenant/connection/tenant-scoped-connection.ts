@@ -22,7 +22,7 @@ import type { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
 export class TenantScopedConnection {
   private readonly internal = new WeakMap<
     object,
-    { raw: PoolClient; released: boolean }
+    { raw: PoolClient; released: boolean; tenantId: string | null }
   >();
 
   private constructor() {}
@@ -49,7 +49,7 @@ export class TenantScopedConnection {
       raw.release(error as Error);
       throw error;
     }
-    return TenantScopedConnection.attach(raw);
+    return TenantScopedConnection.attach(raw, tenantId);
   }
 
   /**
@@ -58,12 +58,15 @@ export class TenantScopedConnection {
    */
   static async acquireUnscoped(pool: Pool): Promise<TenantScopedConnection> {
     const raw = await pool.connect();
-    return TenantScopedConnection.attach(raw);
+    return TenantScopedConnection.attach(raw, null);
   }
 
-  private static attach(raw: PoolClient): TenantScopedConnection {
+  private static attach(
+    raw: PoolClient,
+    tenantId: string | null,
+  ): TenantScopedConnection {
     const instance = new TenantScopedConnection();
-    instance.internal.set(instance, { raw, released: false });
+    instance.internal.set(instance, { raw, released: false, tenantId });
     return instance;
   }
 
@@ -93,6 +96,19 @@ export class TenantScopedConnection {
   /** True once the underlying client has been fully released to the pool. */
   get isReleased(): boolean {
     return this.getState().released;
+  }
+
+  /**
+   * The tenant this connection is pinned to, or `null` if it is unscoped.
+   *
+   * The connection is where `app.tenant_id` is set, so it is also the only place
+   * that can answer "which tenant am I?" without a caller having to remember to
+   * pass it. Repository code reads its tenant from here rather than accepting one
+   * as a parameter, which removes the whole class of bug where a query is handed
+   * a tenant id belonging to a different request.
+   */
+  get tenantId(): string | null {
+    return this.getState().tenantId;
   }
 
   /**
@@ -162,7 +178,11 @@ export class TenantScopedConnection {
     await this.finish('COMMIT');
   }
 
-  private getState(): { raw: PoolClient; released: boolean } {
+  private getState(): {
+    raw: PoolClient;
+    released: boolean;
+    tenantId: string | null;
+  } {
     const state = this.internal.get(this);
     if (!state) {
       throw new Error('TenantScopedConnection is not attached to a client.');

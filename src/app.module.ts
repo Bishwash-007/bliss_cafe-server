@@ -7,6 +7,7 @@ import { BranchModule } from './branch/branch.module';
 import { CheckoutModule } from './checkout/checkout.module';
 import { MenuModule } from './menu/menu.module';
 import { OrderModule } from './order/order.module';
+import { InventoryModule } from './inventory/inventory.module';
 import { OrgModule } from './org/org.module';
 import { PlatformModule } from './platform/platform.module';
 import { TenantModule } from './tenant/tenant.module';
@@ -33,6 +34,7 @@ import { TenantModule } from './tenant/tenant.module';
     CheckoutModule,
     MenuModule,
     OrderModule,
+    InventoryModule,
   ],
   controllers: [AppController],
   providers: [AppService],
