@@ -24,7 +24,6 @@ coverage
 
 # Not needed to build or run the server: the app does not migrate on boot, and
 # `test/` is covered by CI rather than shipped.
-db
 test
 scripts
 .agent
