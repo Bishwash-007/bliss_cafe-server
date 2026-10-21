@@ -5,6 +5,7 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { BranchModule } from './branch/branch.module';
 import { CheckoutModule } from './checkout/checkout.module';
+import { CrmModule } from './crm/crm.module';
 import { MenuModule } from './menu/menu.module';
 import { OrderModule } from './order/order.module';
 import { InventoryModule } from './inventory/inventory.module';
@@ -37,6 +38,7 @@ import { TenantModule } from './tenant/tenant.module';
     OrderModule,
     InventoryModule,
     StaffModule,
+    CrmModule,
   ],
   controllers: [AppController],
   providers: [AppService],
