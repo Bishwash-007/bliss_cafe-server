@@ -10,6 +10,7 @@ import { OrderModule } from './order/order.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { OrgModule } from './org/org.module';
 import { PlatformModule } from './platform/platform.module';
+import { StaffModule } from './staff/staff.module';
 import { TenantModule } from './tenant/tenant.module';
 
 /**
@@ -35,6 +36,7 @@ import { TenantModule } from './tenant/tenant.module';
     MenuModule,
     OrderModule,
     InventoryModule,
+    StaffModule,
   ],
   controllers: [AppController],
   providers: [AppService],

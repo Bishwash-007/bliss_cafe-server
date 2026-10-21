@@ -153,7 +153,7 @@ describe('TenantScopedConnection', () => {
     expect(state.released).toBe(true);
   });
 
-  it('acquireUnscoped never sets app.tenant_id', async () => {
+  it('acquireUnscoped pins a tenant that cannot exist', async () => {
     const { client, state, query } = createFakeClient();
     const connection = await TenantScopedConnection.acquireUnscoped(
       createFakePool(client),
@@ -161,11 +161,39 @@ describe('TenantScopedConnection', () => {
 
     await connection.query('SELECT * FROM tenants');
 
-    expect(state.sql).toEqual(['SELECT * FROM tenants']);
-    expect(state.session['app.tenant_id']).toBeUndefined();
+    // Not "no app.tenant_id at all": a recycled pooled client that once served
+    // a scoped transaction reports '' for the setting, and the policy's
+    // `::uuid` cast then fails instead of filtering. The all-zero uuid keeps
+    // the documented "zero rows" contract on any client.
+    expect(query).toHaveBeenNthCalledWith(
+      1,
+      "SELECT set_config('app.tenant_id', $1, false)",
+      ['00000000-0000-0000-0000-000000000000'],
+    );
+    expect(state.sql).toEqual([
+      "SELECT set_config('app.tenant_id', $1, false)",
+      'SELECT * FROM tenants',
+    ]);
+    expect(state.session['app.tenant_id']).toBe(
+      '00000000-0000-0000-0000-000000000000',
+    );
+    expect(connection.tenantId).toBeNull();
 
     await connection.release();
     expect(query).toHaveBeenCalledWith('COMMIT');
+  });
+
+  it('releases the client when the unscoped pin fails', async () => {
+    const { client, state, release } = createFakeClient({
+      failOn: (sql) => sql.includes('app.tenant_id'),
+    });
+
+    await expect(
+      TenantScopedConnection.acquireUnscoped(createFakePool(client)),
+    ).rejects.toThrow('failed:');
+
+    expect(release).toHaveBeenCalled();
+    expect(state.released).toBe(true);
   });
 
   it('exposes only the wrapped query API to repository code', async () => {

@@ -1,6 +1,16 @@
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
 
 /**
+ * A uuid that is valid but can never belong to a tenant.
+ *
+ * `gen_random_uuid()` cannot produce the all-zero value, and no row is ever
+ * inserted with it, so a policy comparing against it matches nothing. Used to
+ * make "unscoped" mean "sees no tenant data" on every pooled client, including
+ * one that previously served a scoped transaction. See `acquireUnscoped`.
+ */
+const NO_TENANT_ID = '00000000-0000-0000-0000-000000000000';
+
+/**
  * Tenant-scoped database connection (Proxy pattern).
  *
  * Wraps a raw `pg.PoolClient` so that tenant-scoping is structurally
@@ -53,11 +63,40 @@ export class TenantScopedConnection {
   }
 
   /**
-   * Acquires an unscoped connection (platform / super-admin routes). No
-   * `app.tenant_id` is set; RLS-protected tables will simply return zero rows.
+   * Acquires an unscoped connection (platform / super-admin routes).
+   * RLS-protected tables return zero rows rather than leaking a tenant.
+   *
+   * ## Why this pins a tenant that cannot exist
+   *
+   * Leaving `app.tenant_id` unset is not the same as pinning nothing, because
+   * of how Postgres handles a custom placeholder GUC. Once a pooled client has
+   * run `set_config('app.tenant_id', $1, true)` inside a transaction, ending
+   * that transaction leaves the setting at the EMPTY STRING rather than
+   * returning it to "unset" — and `RESET` does not restore `NULL` either. So
+   * the next `current_setting('app.tenant_id', true)` on that recycled client
+   * yields `''`, and the policy's `::uuid` cast raises
+   * `22P02 invalid input syntax for type uuid: ""` instead of filtering rows.
+   *
+   * The failure is intermittent and depends on which client the pool hands
+   * out, which makes it exactly the kind of bug that shows up in production
+   * and never in a test that starts from a fresh pool.
+   *
+   * Pinning an all-zero uuid fixes it at the source: it is a syntactically
+   * valid uuid, no tenant can ever have it (`gen_random_uuid()` cannot produce
+   * it, and nothing inserts it), so every policy evaluates false and the
+   * documented "zero rows" contract holds on any client. The value is set at
+   * SESSION level and is overridden by the next `acquireScoped`'s local value.
    */
   static async acquireUnscoped(pool: Pool): Promise<TenantScopedConnection> {
     const raw = await pool.connect();
+    try {
+      await raw.query("SELECT set_config('app.tenant_id', $1, false)", [
+        NO_TENANT_ID,
+      ]);
+    } catch (error) {
+      raw.release(error as Error);
+      throw error;
+    }
     return TenantScopedConnection.attach(raw, null);
   }
 
