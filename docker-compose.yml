@@ -79,6 +79,10 @@ services:
       # happily signing tokens that anyone can forge. Single-quoted because the
       # `:?` message itself contains colons, which an unquoted YAML scalar cannot.
       JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required - copy .env.example to .env and set a long random value}'
+      # Encrypts tenant gateway credentials at rest. Optional at boot so a
+      # stack that does not use payments still starts; payment configuration
+      # fails loudly at request time if it is missing.
+      PAYMENT_CONFIG_ENCRYPTION_KEY: ${PAYMENT_CONFIG_ENCRYPTION_KEY:-}
     ports:
       - "${API_PORT:-3000}:3000"
     depends_on:

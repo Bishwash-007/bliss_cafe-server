@@ -37,7 +37,7 @@ export class CheckoutController {
     }
     return {
       initiated: true,
-      message: 'Checkout accepted; payment flow not yet implemented',
+      message: 'Checkout accepted; take payment with POST /orders/:id/checkout',
       staff,
     };
   }

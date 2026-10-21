@@ -4,7 +4,11 @@ import { AppModule } from './app.module';
 import { RedisIoAdapter } from './order/realtime/redis-io.adapter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // `rawBody: true` is for the payment webhooks: gateway signatures are an
+  // HMAC over the exact bytes posted, so re-serialising `req.body` would
+  // validate against a different string than the provider signed. Every other
+  // route continues to use the parsed body.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   // Must be installed BEFORE `listen()`, and before the gateway is initialised,
   // or the first sockets bind to the in-memory adapter. With REDIS_URL set this
