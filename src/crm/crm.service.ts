@@ -1,13 +1,18 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { TenantConnectionService } from '../tenant/connection/tenant-connection.service';
 import type { TenantScopedConnection } from '../tenant/connection/tenant-scoped-connection';
-import type { CustomerLookupDto, CustomerQueryDto } from './dto/crm.dto';
+import type {
+  CustomerLookupDto,
+  CustomerQueryDto,
+  UpdateCustomerDto,
+} from './dto/crm.dto';
 import {
   CustomerNotFoundException,
   InvalidCustomerException,
   InvalidPhoneException,
 } from './exceptions/crm.exceptions';
 import { CrmRepository, isUniqueViolation } from './crm.repository';
+import { parseCalendarDay, utcCalendarDay } from './calendar';
 import type {
   CustomerLookupResult,
   CustomerProfile,
@@ -118,6 +123,7 @@ export class CrmService {
 
     const fullName = this.normaliseName(dto.fullName);
     const email = this.normaliseEmail(dto.email);
+    const dateOfBirth = this.normaliseDateOfBirth(dto.dateOfBirth);
 
     let created: CustomerRow;
     try {
@@ -126,6 +132,7 @@ export class CrmService {
           phone,
           fullName,
           email,
+          dateOfBirth,
         }),
       );
     } catch (error) {
@@ -179,6 +186,46 @@ export class CrmService {
         customer.id,
       ),
     };
+  }
+
+  /**
+   * Fills in (or clears) a customer's birthday.
+   *
+   * This is deliberately the ONLY editable customer field. Correcting a
+   * misspelled name remains unsupported, because two staff members can disagree
+   * about spelling; a birthday is either known or not, and birthday greetings
+   * cannot work until the counter can record one for a customer who predates
+   * this feature. `null` clears it.
+   *
+   * A PATCH with no fields is a successful no-op, matching the "absent means
+   * leave alone" rule the promotion update uses.
+   */
+  async updateCustomer(
+    connection: TenantScopedConnection,
+    customerId: string,
+    dto: UpdateCustomerDto,
+  ): Promise<CustomerRow> {
+    const existing = await this.repository.findCustomerById(
+      connection,
+      customerId,
+    );
+    if (!existing) {
+      throw new CustomerNotFoundException(customerId);
+    }
+    if (dto.dateOfBirth === undefined) {
+      return existing;
+    }
+
+    const dateOfBirth = this.normaliseDateOfBirth(dto.dateOfBirth);
+    const updated = await this.repository.updateCustomerDateOfBirth(
+      connection,
+      customerId,
+      dateOfBirth,
+    );
+    if (!updated) {
+      throw new CustomerNotFoundException(customerId);
+    }
+    return updated;
   }
 
   /**
@@ -387,5 +434,40 @@ export class CrmService {
       );
     }
     return email;
+  }
+
+  /**
+   * Validates a birth date as a real calendar day not in the future.
+   *
+   * The string is not passed through `new Date(value)` and re-formatted: that
+   * would accept `1994-02-31` by rolling it into March, and would turn a
+   * date-only value into an instant in the server's zone. The components are
+   * checked directly and the SQL column is `DATE`, so what is stored is exactly
+   * what was sent.
+   *
+   * "Today" is the UTC calendar day. A tenant-local day needs a tenant timezone,
+   * which does not exist yet; this check only rejects impossible birthdays, so
+   * a customer in a zone that is already on the next day is not rejected.
+   */
+  private normaliseDateOfBirth(value: unknown): string | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    if (typeof value !== 'string') {
+      throw new InvalidCustomerException(
+        'dateOfBirth must be a YYYY-MM-DD string or null',
+      );
+    }
+    const birthday = parseCalendarDay(value.trim());
+    if (!birthday) {
+      throw new InvalidCustomerException(
+        `dateOfBirth '${value}' must be a real calendar day in YYYY-MM-DD form`,
+      );
+    }
+
+    if (birthday > utcCalendarDay(new Date())) {
+      throw new InvalidCustomerException('dateOfBirth cannot be in the future');
+    }
+    return birthday;
   }
 }

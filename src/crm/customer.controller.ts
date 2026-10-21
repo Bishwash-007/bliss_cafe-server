@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -14,7 +15,13 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { TenantRequestContext } from '../tenant/connection/tenant-request-context';
 import type { TenantScopedConnection } from '../tenant/connection/tenant-scoped-connection';
 import { CrmService } from './crm.service';
-import type { CustomerLookupDto, CustomerQueryDto } from './dto/crm.dto';
+import type {
+  AnnounceBirthdaysDto,
+  CustomerLookupDto,
+  CustomerQueryDto,
+  UpdateCustomerDto,
+} from './dto/crm.dto';
+import { CrmEventPublisher } from './events/crm-event.publisher';
 
 /**
  * Who may read or create a customer.
@@ -31,6 +38,16 @@ const CUSTOMER_ROLES = [
   'receptionist',
   'waiter',
 ];
+
+/**
+ * Who may send a campaign to the tenant's customers.
+ *
+ * Writing a promotion is a branch-manager decision; messaging every customer
+ * in the tenant is not. These endpoints can enqueue thousands of SMS/email/push
+ * jobs, so they are limited to the owner roles. A later per-branch campaign
+ * feature can widen this deliberately; today there is no segment to scope.
+ */
+const CAMPAIGN_ROLES = ['super_admin', 'org_owner'];
 
 /**
  * Customer profiles and loyalty balances.
@@ -53,6 +70,7 @@ const CUSTOMER_ROLES = [
 export class CustomerController {
   constructor(
     private readonly crm: CrmService,
+    private readonly publisher: CrmEventPublisher,
     private readonly tenantContext: TenantRequestContext,
   ) {}
 
@@ -82,6 +100,29 @@ export class CustomerController {
   @Roles(...CUSTOMER_ROLES)
   list(@Query() query: CustomerQueryDto) {
     return this.crm.listCustomers(this.connection(), query);
+  }
+
+  /**
+   * Publishes `crm.birthday` for one calendar day (default: today in UTC).
+   *
+   * This is the manual/cron entry point, not an automatic scheduler. It is a
+   * POST because it has the side effect of handing events to the notification
+   * queue; it creates no CRM row, so it answers 200 rather than 201.
+   *
+   * Declared before `GET :id` (and a different method) so no parameterised
+   * route can ever treat `birthdays` as a customer id.
+   */
+  @Post('birthdays/announce')
+  @HttpCode(200)
+  @Roles(...CAMPAIGN_ROLES)
+  announceBirthdays(@Body() body: AnnounceBirthdaysDto) {
+    return this.publisher.announceBirthdays(this.connection(), body);
+  }
+
+  @Patch(':id')
+  @Roles(...CUSTOMER_ROLES)
+  update(@Param('id') id: string, @Body() body: UpdateCustomerDto) {
+    return this.crm.updateCustomer(this.connection(), id, body);
   }
 
   @Get(':id')

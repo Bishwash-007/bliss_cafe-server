@@ -70,6 +70,7 @@ export class TenantOnboardingBuilder {
       await this.assertPlanExists();
       const tenantId = await this.createTenant();
       const branchId = await this.createFirstBranch(tenantId);
+      await this.createSubscription(tenantId);
       const tableIds = await this.createDefaultTables(tenantId, branchId);
       const ownerUserId = await this.createOwnerAccount(tenantId, branchId);
 
@@ -166,6 +167,20 @@ export class TenantOnboardingBuilder {
       [tenantId, this.branchName, this.branchAddress],
     );
     return result.rows[0].id;
+  }
+
+  private async createSubscription(tenantId: string): Promise<void> {
+    if (!this.planId) {
+      // Onboarding without a plan leaves the tenant unbilled;
+      // SubscriptionService reports that clearly rather than inventing a price.
+      return;
+    }
+    await this.connection.query(
+      `INSERT INTO tenant_subscriptions
+         (tenant_id, plan_id, status, ends_at)
+       VALUES ($1, $2, 'active', now() + interval '30 days')`,
+      [tenantId, this.planId],
+    );
   }
 
   private async createDefaultTables(

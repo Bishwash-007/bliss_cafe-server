@@ -15,11 +15,13 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { TenantRequestContext } from '../tenant/connection/tenant-request-context';
 import type { TenantScopedConnection } from '../tenant/connection/tenant-scoped-connection';
 import type {
+  AnnouncePromotionDto,
   ApplyPromotionDto,
   CreatePromotionDto,
   PromotionQueryDto,
   UpdatePromotionDto,
 } from './dto/crm.dto';
+import { CrmEventPublisher } from './events/crm-event.publisher';
 import { PromotionService } from './promotions/promotion.service';
 
 /** Who may apply a promotion at the till. */
@@ -47,6 +49,15 @@ const PROMOTION_READ_ROLES = PROMOTION_APPLY_ROLES;
 const PROMOTION_WRITE_ROLES = ['super_admin', 'org_owner', 'branch_manager'];
 
 /**
+ * Who may announce a promotion to customers.
+ *
+ * Narrower than `PROMOTION_WRITE_ROLES`: a branch manager may invent a code,
+ * but a tenant-wide SMS/email/push broadcast is an owner action. See the same
+ * split in `CustomerController`.
+ */
+const PROMOTION_ANNOUNCE_ROLES = ['super_admin', 'org_owner'];
+
+/**
  * Promotions and discount application.
  *
  * `POST /promotions/apply` is a POST even though it changes nothing: the
@@ -61,6 +72,7 @@ const PROMOTION_WRITE_ROLES = ['super_admin', 'org_owner', 'branch_manager'];
 export class PromotionController {
   constructor(
     private readonly promotions: PromotionService,
+    private readonly publisher: CrmEventPublisher,
     private readonly tenantContext: TenantRequestContext,
   ) {}
 
@@ -89,6 +101,22 @@ export class PromotionController {
   @Roles(...PROMOTION_APPLY_ROLES)
   apply(@Body() body: ApplyPromotionDto) {
     return this.promotions.apply(this.connection(), body);
+  }
+
+  /**
+   * Announces an active promotion to a customer audience.
+   *
+   * `customerIds` omitted means every customer in the tenant. Promotions are
+   * tenant-wide (see `PromotionController`/`CustomerController` notes), so
+   * there is no branch segment to apply. The publisher validates the whole
+   * audience before emitting, and the notification queue deduplicates a repeat
+   * of the same promotion/customer pair.
+   */
+  @Post(':id/announce')
+  @HttpCode(200)
+  @Roles(...PROMOTION_ANNOUNCE_ROLES)
+  announce(@Param('id') id: string, @Body() body: AnnouncePromotionDto) {
+    return this.publisher.announcePromotion(this.connection(), id, body);
   }
 
   @Get(':id')

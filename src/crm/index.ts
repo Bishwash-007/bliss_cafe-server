@@ -12,6 +12,10 @@
  *  - **Promotions** — a tenant-wide catalogue (`percentage` / `flat`) and
  *    `POST /promotions/apply`, which prices a subtotal and refuses a promotion
  *    that is inactive, not yet started, or expired.
+ *  - **Campaign publishing** — `POST /promotions/:id/announce` and
+ *    `POST /customers/birthdays/announce` publish one `crm.promotion` /
+ *    `crm.birthday` event per customer on the shared event bus. Notification
+ *    owns opt-out, channel choice and delivery.
  *
  * ## How checkout attaches a customer
  *
@@ -70,14 +74,37 @@
  * staff members cannot overwrite each other's spelling of a regular's name.
  * The `loyalty_credits` ledger is written but not exposed as a history
  * endpoint.
+ *
+ * ### Campaign scheduling and segments
+ *
+ * Publishing is implemented, but choosing an audience is deliberately manual:
+ * an owner supplies an explicit customer list or asks for the whole tenant, and
+ * a birthday run is for one explicit calendar day (default UTC today). There is
+ * no segment builder, no recurring cron, and no tenant timezone yet. A scheduler
+ * can call `CrmEventPublisher.announceBirthdays` with the tenant's local day
+ * without changing the event contract or the notification listener.
+ *
+ * Promotion announcements require the promotion to be usable at announce time,
+ * by the same predicate checkout applies. Announcing a future code ahead of its
+ * `starts_at` is therefore not supported yet.
  */
 
 export { CrmModule } from './crm.module';
 export { CrmService } from './crm.service';
 export { CustomerController } from './customer.controller';
 export { PromotionController } from './promotion.controller';
+export { CrmEventPublisher } from './events/crm-event.publisher';
 export { PromotionService } from './promotions/promotion.service';
 
+export {
+  CRM_EVENTS,
+  type CrmBirthdayEvent,
+  type CrmCustomerEvent,
+  type CrmEventName,
+  type CrmPromotionEvent,
+} from './events/crm-events';
+
+export { parseCalendarDay, utcCalendarDay } from './calendar';
 export { CRM_CLOCK, SystemClock, type CrmClock } from './clock';
 export {
   LOYALTY_ACCRUAL_STRATEGY,
@@ -95,26 +122,33 @@ export { PercentageDiscountStrategy } from './promotions/percentage-discount.str
 
 export { CrmRepository } from './crm.repository';
 export type {
+  BirthdayAnnouncement,
+  CustomerAnnouncementTarget,
   CustomerLookupResult,
   CustomerProfile,
   CustomerRow,
   LoyaltyAccountRow,
   LoyaltyAccrualOutcome,
   LoyaltyCreditRow,
+  PromotionAnnouncement,
   PromotionApplication,
   PromotionRow,
 } from './crm.types';
 export type {
+  AnnounceBirthdaysDto,
+  AnnouncePromotionDto,
   ApplyPromotionDto,
   CreatePromotionDto,
   CustomerLookupDto,
   CustomerQueryDto,
   PromotionQueryDto,
+  UpdateCustomerDto,
   UpdatePromotionDto,
 } from './dto/crm.dto';
 export {
   CustomerNotFoundException,
   DuplicatePromotionCodeException,
+  InvalidCampaignException,
   InvalidCustomerException,
   InvalidInstantException,
   InvalidPhoneException,

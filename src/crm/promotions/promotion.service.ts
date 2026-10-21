@@ -284,7 +284,16 @@ export class PromotionService {
 
   // -------------------------------------------------------------- validity
 
-  private assertUsable(promotion: PromotionRow, now: Date): void {
+  /**
+   * Refuses a promotion outside its active window.
+   *
+   * Public because a campaign announcement must obey exactly the same rule as a
+   * till application: telling every customer about a code that cannot be
+   * applied is worse than not announcing it. Keeping one predicate means the
+   * announcement and the checkout can never disagree about whether a promotion
+   * is live.
+   */
+  assertUsable(promotion: PromotionRow, now: Date): void {
     if (!promotion.is_active) {
       throw new PromotionInactiveException(promotion.code);
     }

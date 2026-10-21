@@ -37,6 +37,24 @@ export class TenantConnectionService {
     return result.rows[0] ?? null;
   }
 
+  /**
+   * Every active tenant, for background work that must visit all of them.
+   *
+   * `tenants` is a platform table with no RLS policy, so this read is safe on
+   * the shared pool. Callers still acquire a scoped connection per tenant before
+   * touching tenant-owned tables; this method deliberately does NOT hand out an
+   * "all tenants" connection that could read another tenant's data.
+   */
+  async listActiveTenants(): Promise<TenantRecord[]> {
+    const result = await this.pool.query<TenantRecord>(
+      `SELECT id, slug, status
+         FROM tenants
+        WHERE status = 'active'
+        ORDER BY id`,
+    );
+    return result.rows;
+  }
+
   /** Acquires a connection scoped to the given tenant (starts a transaction). */
   acquireScoped(tenantId: string): Promise<TenantScopedConnection> {
     return TenantScopedConnection.acquireScoped(this.pool, tenantId);

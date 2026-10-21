@@ -19,6 +19,7 @@ function customer(overrides: Partial<CustomerRow> = {}): CustomerRow {
     full_name: 'Asha Rai',
     phone: '9800000000',
     email: 'asha@example.test',
+    date_of_birth: null,
     created_at: new Date('2026-10-01T00:00:00Z'),
     ...overrides,
   };
@@ -64,6 +65,7 @@ function makeService(acquired = connectionMock()) {
     findCustomerById: jest.fn(),
     listCustomers: jest.fn(),
     insertCustomer: jest.fn(),
+    updateCustomerDateOfBirth: jest.fn(),
     findLoyaltyAccount: jest.fn(),
     ensureLoyaltyAccount: jest.fn(),
     creditLoyalty: jest.fn(),
@@ -123,6 +125,7 @@ describe('CrmService.lookupOrCreateByPhone', () => {
       phone: '9800000000',
       fullName: 'Asha Rai',
       email: 'asha@example.test',
+      dateOfBirth: null,
     });
     expect(repository.ensureLoyaltyAccount).toHaveBeenCalledWith(
       expect.anything(),
@@ -142,6 +145,7 @@ describe('CrmService.lookupOrCreateByPhone', () => {
       phone: '9800000000',
       fullName: null,
       email: null,
+      dateOfBirth: null,
     });
   });
 
@@ -193,6 +197,101 @@ describe('CrmService.lookupOrCreateByPhone', () => {
         email: 'not-an-email',
       }),
     ).rejects.toThrow(InvalidCustomerException);
+  });
+});
+
+describe('CrmService birthday', () => {
+  it('stores a valid date of birth on creation', async () => {
+    const { service, repository } = makeService();
+    repository.findCustomerByPhone.mockResolvedValue(null);
+    repository.insertCustomer.mockResolvedValue(customer());
+    repository.ensureLoyaltyAccount.mockResolvedValue(account());
+
+    await service.lookupOrCreateByPhone(connection(), {
+      phone: '9800000000',
+      dateOfBirth: ' 1994-04-12 ',
+    });
+
+    expect(repository.insertCustomer).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ dateOfBirth: '1994-04-12' }),
+    );
+  });
+
+  it.each([
+    ['1994-02-31', 'not a real calendar day'],
+    ['12/04/1994', 'not a calendar day'],
+    ['2999-01-01', 'cannot be in the future'],
+  ])('rejects %s', async (dateOfBirth) => {
+    const { service, repository } = makeService();
+    repository.findCustomerByPhone.mockResolvedValue(null);
+
+    await expect(
+      service.lookupOrCreateByPhone(connection(), {
+        phone: '9800000000',
+        dateOfBirth,
+      }),
+    ).rejects.toThrow(InvalidCustomerException);
+    expect(repository.insertCustomer).not.toHaveBeenCalled();
+  });
+
+  it('updates a birthday for an existing customer', async () => {
+    const { service, repository } = makeService();
+    repository.findCustomerById.mockResolvedValue(customer());
+    repository.updateCustomerDateOfBirth.mockResolvedValue(
+      customer({ date_of_birth: '1994-04-12' }),
+    );
+
+    const updated = await service.updateCustomer(connection(), 'customer-1', {
+      dateOfBirth: '1994-04-12',
+    });
+
+    expect(updated.date_of_birth).toBe('1994-04-12');
+    expect(repository.updateCustomerDateOfBirth).toHaveBeenCalledWith(
+      expect.anything(),
+      'customer-1',
+      '1994-04-12',
+    );
+  });
+
+  it('clears a birthday with null', async () => {
+    const { service, repository } = makeService();
+    repository.findCustomerById.mockResolvedValue(
+      customer({ date_of_birth: '1994-04-12' }),
+    );
+    repository.updateCustomerDateOfBirth.mockResolvedValue(customer());
+
+    await service.updateCustomer(connection(), 'customer-1', {
+      dateOfBirth: null,
+    });
+
+    expect(repository.updateCustomerDateOfBirth).toHaveBeenCalledWith(
+      expect.anything(),
+      'customer-1',
+      null,
+    );
+  });
+
+  it('treats a PATCH with no fields as a no-op', async () => {
+    const { service, repository } = makeService();
+    const existing = customer();
+    repository.findCustomerById.mockResolvedValue(existing);
+
+    const result = await service.updateCustomer(connection(), 'customer-1', {});
+
+    expect(result).toBe(existing);
+    expect(repository.updateCustomerDateOfBirth).not.toHaveBeenCalled();
+  });
+
+  it('404s an update for an unknown customer', async () => {
+    const { service, repository } = makeService();
+    repository.findCustomerById.mockResolvedValue(null);
+
+    await expect(
+      service.updateCustomer(connection(), 'missing', {
+        dateOfBirth: '1994-04-12',
+      }),
+    ).rejects.toThrow(CustomerNotFoundException);
   });
 });
 

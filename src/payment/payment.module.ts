@@ -56,5 +56,9 @@ import { WebhookService } from './webhooks/webhook.service';
     WebhookService,
     { provide: PAYMENT_HTTP, useClass: FetchPaymentHttpClient },
   ],
+  // BillingModule charges a tenant's subscription through this factory. It is
+  // the only payment provider construction surface other modules may use;
+  // adapters and config remain internal.
+  exports: [PaymentProviderFactory],
 })
 export class PaymentModule {}

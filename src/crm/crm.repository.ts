@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import type { TenantScopedConnection } from '../tenant/connection/tenant-scoped-connection';
-import type { CustomerRow, LoyaltyAccountRow, PromotionRow } from './crm.types';
+import type {
+  CustomerAnnouncementTarget,
+  CustomerRow,
+  LoyaltyAccountRow,
+  PromotionRow,
+} from './crm.types';
 
 /**
  * PostgreSQL `23505` (unique_violation).
@@ -37,7 +42,12 @@ export function isUuid(value: string): boolean {
 const PROMOTION_COLUMNS = `id, tenant_id, code, description, discount_type,
   discount_value, starts_at, ends_at, is_active`;
 
-const CUSTOMER_COLUMNS = `id, tenant_id, full_name, phone, email, created_at`;
+// `date_of_birth::text` keeps the API a calendar day. The pg driver turns a
+// bare DATE into a JS Date at local midnight, which serialises as the previous
+// day in UTC for a positive-offset server — exactly the drift the DATE column
+// exists to avoid.
+const CUSTOMER_COLUMNS = `id, tenant_id, full_name, phone, email,
+  date_of_birth::text AS date_of_birth, created_at`;
 
 const LOYALTY_COLUMNS = `id, tenant_id, customer_id, points_balance, tier, updated_at`;
 
@@ -129,15 +139,80 @@ export class CrmRepository {
       phone: string;
       fullName: string | null;
       email: string | null;
+      dateOfBirth: string | null;
     },
   ): Promise<CustomerRow> {
     const result = await connection.query<CustomerRow>(
-      `INSERT INTO customers (tenant_id, phone, full_name, email)
-            VALUES ($1, $2, $3, $4)
+      `INSERT INTO customers (tenant_id, phone, full_name, email, date_of_birth)
+            VALUES ($1, $2, $3, $4, $5)
          RETURNING ${CUSTOMER_COLUMNS}`,
-      [this.tenantId(connection), input.phone, input.fullName, input.email],
+      [
+        this.tenantId(connection),
+        input.phone,
+        input.fullName,
+        input.email,
+        input.dateOfBirth,
+      ],
     );
     return result.rows[0];
+  }
+
+  async updateCustomerDateOfBirth(
+    connection: TenantScopedConnection,
+    customerId: string,
+    dateOfBirth: string | null,
+  ): Promise<CustomerRow | null> {
+    if (!isUuid(customerId)) {
+      return null;
+    }
+    const result = await connection.query<CustomerRow>(
+      `UPDATE customers
+          SET date_of_birth = $3
+        WHERE tenant_id = $1 AND id = $2
+        RETURNING ${CUSTOMER_COLUMNS}`,
+      [this.tenantId(connection), customerId, dateOfBirth],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  /**
+   * The customers a campaign should publish one event per.
+   *
+   * `customerIds === undefined` means the whole tenant. Callers that pass a
+   * list have already validated its shape; `$2::uuid[]` is only evaluated when
+   * the list is present, so a malformed id cannot reach Postgres as a cast
+   * error. Birthday matching uses exact month/day on the stored `DATE`.
+   */
+  async listAnnouncementTargets(
+    connection: TenantScopedConnection,
+    customerIds?: readonly string[],
+  ): Promise<CustomerAnnouncementTarget[]> {
+    const result = await connection.query<CustomerAnnouncementTarget>(
+      `SELECT id, full_name
+         FROM customers
+        WHERE tenant_id = $1
+          AND ($2::uuid[] IS NULL OR id = ANY($2::uuid[]))
+        ORDER BY created_at DESC, id DESC`,
+      [this.tenantId(connection), customerIds ?? null],
+    );
+    return result.rows;
+  }
+
+  async listBirthdayTargets(
+    connection: TenantScopedConnection,
+    date: string,
+  ): Promise<CustomerAnnouncementTarget[]> {
+    const result = await connection.query<CustomerAnnouncementTarget>(
+      `SELECT id, full_name
+         FROM customers
+        WHERE tenant_id = $1
+          AND date_of_birth IS NOT NULL
+          AND EXTRACT(MONTH FROM date_of_birth) = EXTRACT(MONTH FROM $2::date)
+          AND EXTRACT(DAY FROM date_of_birth) = EXTRACT(DAY FROM $2::date)
+        ORDER BY full_name NULLS LAST, id ASC`,
+      [this.tenantId(connection), date],
+    );
+    return result.rows;
   }
 
   // ------------------------------------------------------------------ loyalty

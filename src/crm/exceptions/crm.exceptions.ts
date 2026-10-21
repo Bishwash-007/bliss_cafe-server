@@ -114,6 +114,13 @@ export class UnsupportedDiscountTypeException extends UnprocessableEntityExcepti
   }
 }
 
+/** A campaign request whose audience or day cannot be used as sent. */
+export class InvalidCampaignException extends BadRequestException {
+  constructor(reason: string) {
+    super(`Invalid campaign: ${reason}`);
+  }
+}
+
 /** A promotion field that cannot be stored as sent. */
 export class InvalidPromotionException extends BadRequestException {
   constructor(reason: string) {

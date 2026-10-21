@@ -3,6 +3,7 @@ import { CRM_CLOCK, SystemClock } from './clock';
 import { CrmRepository } from './crm.repository';
 import { CrmService } from './crm.service';
 import { CustomerController } from './customer.controller';
+import { CrmEventPublisher } from './events/crm-event.publisher';
 import { OrderPaidLoyaltyListener } from './listeners/order-paid.listener';
 import { LOYALTY_ACCRUAL_STRATEGY } from './loyalty/loyalty-accrual.strategy';
 import { PointsPerCurrencyStrategy } from './loyalty/points-per-currency.strategy';
@@ -30,11 +31,12 @@ import { PromotionService } from './promotions/promotion.service';
  *
  * ## The Observer dependency
  *
- * `OrderPaidLoyaltyListener` subscribes to `order.paid`. `EventEmitterModule`
- * is global (registered in `AppModule`), so this module does not import
- * `OrderModule` at all — only the event contract from `src/order`, and that
- * import is types and one string constant. A CRM unit test therefore needs no
- * Nest testing module and no order repository.
+ * `OrderPaidLoyaltyListener` subscribes to `order.paid`, and
+ * `CrmEventPublisher` publishes `crm.promotion`/`crm.birthday` for Notification
+ * to consume. `EventEmitterModule` is global (registered in `AppModule`), so
+ * this module imports neither `OrderModule` nor `NotificationModule` — only the
+ * order event contract, and that import is types and one string constant. A
+ * CRM unit test therefore needs no Nest testing module and no order repository.
  *
  * ## What this module does not import
  *
@@ -49,6 +51,7 @@ import { PromotionService } from './promotions/promotion.service';
     CrmService,
     PromotionService,
     CrmRepository,
+    CrmEventPublisher,
     OrderPaidLoyaltyListener,
 
     // One source of "now" for all promotion checks.

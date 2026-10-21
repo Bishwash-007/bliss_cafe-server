@@ -13,15 +13,53 @@
  * phone cannot be looked up again — which makes the loyalty account attached
  * to them unreachable.
  *
- * `fullName` and `email` are optional and are only used when the customer is
- * created. A lookup of an existing phone never overwrites what is already
- * stored: two staff members entering the same regular must not fight over the
- * spelling of their name.
+ * `fullName`, `email` and `dateOfBirth` are optional and are only used when the
+ * customer is created. A lookup of an existing phone never overwrites what is
+ * already stored: two staff members entering the same regular must not fight
+ * over the spelling of their name. `PATCH /customers/:id` is the deliberate way
+ * to fill in a birthday later.
  */
 export interface CustomerLookupDto {
   phone: string;
   fullName?: string | null;
   email?: string | null;
+  /** Calendar day, `YYYY-MM-DD`; not an instant. Null means "unknown". */
+  dateOfBirth?: string | null;
+}
+
+/**
+ * A partial customer change.
+ *
+ * Only `dateOfBirth` is editable today. It is separate from the lookup payload
+ * so "the customer said their birthday" is an explicit action rather than a
+ * side effect of typing a phone number at the counter. `null` clears a
+ * previously stored day.
+ */
+export interface UpdateCustomerDto {
+  dateOfBirth?: string | null;
+}
+
+/**
+ * The audience for a promotion announcement.
+ *
+ * Omitted or `null` means every customer in the tenant. An explicit list is
+ * checked for unknown ids before any event is published, so a typo cannot
+ * silently send to a smaller audience. An empty list is rejected: "nobody" is
+ * not an announcement, it is a mistake.
+ */
+export interface AnnouncePromotionDto {
+  customerIds?: string[] | null;
+}
+
+/**
+ * The day whose birthdays should be greeted.
+ *
+ * Omitted uses "today" in UTC. Supplied as `YYYY-MM-DD` so an operator (or a
+ * later scheduler) can choose the tenant's local calendar day, which the schema
+ * cannot derive until tenants have a timezone.
+ */
+export interface AnnounceBirthdaysDto {
+  date?: string | null;
 }
 
 /** Query for `GET /customers`. */

@@ -12,6 +12,7 @@
  *
  * `customers` and `promotions` were created in migrations 006 and 008 and are
  * already covered by the RLS policy from 010. `loyalty_credits` is new in 014.
+ * `date_of_birth` is new in 017 (calendar `DATE`, so a string in the API).
  */
 
 /** Raw row of `customers`. Phone is nullable in the schema, not in the API. */
@@ -21,7 +22,30 @@ export interface CustomerRow {
   full_name: string | null;
   phone: string | null;
   email: string | null;
+  /** `YYYY-MM-DD`, or null when unknown. A birthday is a day, not an instant. */
+  date_of_birth: string | null;
   created_at: Date;
+}
+
+/** A customer a campaign event should be published for. */
+export interface CustomerAnnouncementTarget {
+  id: string;
+  full_name: string | null;
+}
+
+/** The outcome of announcing one promotion to a customer audience. */
+export interface PromotionAnnouncement {
+  promotionId: string;
+  code: string;
+  /** One event per customer. The queue still decides delivery and opt-out. */
+  published: number;
+}
+
+/** The outcome of announcing one day's birthdays. */
+export interface BirthdayAnnouncement {
+  /** The calendar day announced, `YYYY-MM-DD`. */
+  date: string;
+  published: number;
 }
 
 /** Raw row of `loyalty_accounts`. */
