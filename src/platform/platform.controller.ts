@@ -50,6 +50,8 @@ export class PlatformController {
 
   /** Lists all tenants (platform tables have no RLS policy). */
   @Get('tenants')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('super_admin')
   async listTenants(): Promise<
     Array<{ id: string; slug: string; status: string }>
   > {

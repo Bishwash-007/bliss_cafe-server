@@ -1,16 +1,26 @@
+import { IsOptional, IsString } from 'class-validator';
+
 /**
  * Request shapes for the billing routes.
  *
- * Plain interfaces, matching the rest of the project: the controller validates
- * the few required fields and the service owns the lifecycle rules.
+ * The controller still trims and checks the few required fields because the
+ * lifecycle rules belong to the service; these decorators reject wrong JSON
+ * types before any database or gateway work happens.
  */
-export interface SubscriptionActionDto {
+export class SubscriptionActionDto {
   /** One of: upgrade, downgrade, renew, retry_payment, cancel. */
+  @IsOptional()
+  @IsString()
   action?: string;
+
   /** Required for upgrade/downgrade. */
+  @IsOptional()
+  @IsString()
   planId?: string;
 }
 
-export interface ChangePlanDto {
+export class ChangePlanDto {
+  @IsOptional()
+  @IsString()
   planId?: string;
 }

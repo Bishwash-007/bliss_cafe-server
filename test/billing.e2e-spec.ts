@@ -400,4 +400,65 @@ describeWithDb('BillingModule (integration)', () => {
       (response.body as Array<{ name: string }>).map((plan) => plan.name),
     ).toEqual(['free', 'starter', 'pro']);
   });
+
+  // ------------------------------------------------------- access enforcement
+
+  describe('the subscription state is enforced outside billing', () => {
+    it('lets a past_due tenant read its data', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/billing/subscription')
+        .set('Authorization', `Bearer ${owner2Token}`)
+        .set('X-Tenant-Id', T2);
+
+      // /billing is exempt: it is where the owner settles the invoice.
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({ status: 'past_due' });
+    });
+
+    it('refuses a past_due tenant a write', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/branches')
+        .set('Authorization', `Bearer ${owner2Token}`)
+        .set('X-Tenant-Id', T2)
+        .send({ name: 'Past Due Branch' });
+
+      expect(response.status).toBe(402);
+    });
+
+    it('refuses a cancelled tenant everything', async () => {
+      await adminTest.query(
+        `UPDATE tenant_subscriptions SET status = 'cancelled' WHERE id = $1`,
+        [SUB3],
+      );
+      await adminTest.query(
+        `INSERT INTO users
+           (id, tenant_id, branch_id, role_id, full_name, email, password_hash)
+         VALUES ($1, $2, NULL,
+                 (SELECT id FROM roles WHERE name = 'org_owner'),
+                 'Owner Three', 'billing-owner3@cafe.test', $3)`,
+        ['a4444444-4444-4444-8444-444444444444', T3, hash],
+      );
+      const owner3Token = await login('billing-owner3@cafe.test', T3);
+
+      const write = await request(app.getHttpServer())
+        .post('/branches')
+        .set('Authorization', `Bearer ${owner3Token}`)
+        .set('X-Tenant-Id', T3)
+        .send({ name: 'Cancelled Branch' });
+      expect(write.status).toBe(402);
+
+      const read = await request(app.getHttpServer())
+        .get('/branches')
+        .set('Authorization', `Bearer ${owner3Token}`)
+        .set('X-Tenant-Id', T3);
+      expect(read.status).toBe(402);
+
+      // The subscription routes stay open so the owner can start a new one.
+      const billing = await request(app.getHttpServer())
+        .get('/billing/subscription')
+        .set('Authorization', `Bearer ${owner3Token}`)
+        .set('X-Tenant-Id', T3);
+      expect(billing.status).toBe(200);
+    });
+  });
 });

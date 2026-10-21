@@ -337,6 +337,37 @@ describeWithDb('OrgModule / BranchModule (integration)', () => {
           WHERE t.slug = 'ghost-org'`),
       ).toBe(0);
     });
+
+    it('rejects an empty body with 400 instead of failing halfway', async () => {
+      const response = await onboard({});
+
+      expect(response.status).toBe(400);
+      expect((response.body as { message?: unknown }).message).toBeDefined();
+      expect(await count(`FROM tenants`)).toBe(1);
+    });
+
+    it('rejects an owner with no password', async () => {
+      const response = await onboard({
+        orgName: 'No Password',
+        slug: 'no-password',
+        firstBranch: { name: 'Branch' },
+        owner: { email: 'nopassword@cafe.test' },
+      });
+
+      expect(response.status).toBe(400);
+      expect(await count(`FROM tenants WHERE slug = 'no-password'`)).toBe(0);
+    });
+
+    it('rejects a missing first branch', async () => {
+      const response = await onboard({
+        orgName: 'No Branch',
+        slug: 'no-branch',
+        owner: { email: 'nobranch@cafe.test', password: PASSWORD },
+      });
+
+      expect(response.status).toBe(400);
+      expect(await count(`FROM tenants WHERE slug = 'no-branch'`)).toBe(0);
+    });
   });
 
   describe('branch plan enforcement and CRUD', () => {

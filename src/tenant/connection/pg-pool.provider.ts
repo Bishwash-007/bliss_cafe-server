@@ -1,9 +1,16 @@
 import type { Provider } from '@nestjs/common';
-import { Pool } from 'pg';
+import { Pool, type PoolConfig } from 'pg';
 import { PG_POOL } from '../tenant.constants';
 
-function databaseConfigFromEnv():
-  { connectionString: string } | Record<string, string | number> {
+/**
+ * The database connection, from the environment.
+ *
+ * `DATABASE_URL` wins outright when it is set; otherwise the five separate
+ * settings are used. Exported because the migration runner needs exactly the
+ * same resolution — a migration that connected somewhere else than the app
+ * would be a migration applied to the wrong database.
+ */
+export function databaseConfigFromEnv(): PoolConfig {
   const url = process.env.DATABASE_URL;
   if (url) {
     return { connectionString: url };

@@ -289,6 +289,31 @@ export class MenuService {
     );
   }
 
+  /**
+   * The branch an item belongs to.
+   *
+   * `null` means the item is ORG-WIDE — it shows up in every branch of the
+   * café, so only an owner may change it. A branch id means the item is that
+   * branch's own override and only that branch (or an owner) may change it.
+   *
+   * The HTTP layer uses this to refuse a write before it happens; the item's
+   * id alone is not enough to know who may touch it.
+   */
+  async itemBranch(
+    connection: TenantScopedConnection,
+    itemId: string,
+  ): Promise<string | null> {
+    const item = await this.repository.findItemById(
+      connection,
+      this.tenantId,
+      itemId,
+    );
+    if (!item) {
+      throw new MenuItemNotFoundException(itemId);
+    }
+    return item.branch_id;
+  }
+
   async createItem(
     connection: TenantScopedConnection,
     branchId: string | null,

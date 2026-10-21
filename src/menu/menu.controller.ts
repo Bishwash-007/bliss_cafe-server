@@ -6,13 +6,17 @@ import {
   Param,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { TenantRequestContext } from '../tenant/connection/tenant-request-context';
 import type { TenantScopedConnection } from '../tenant/connection/tenant-scoped-connection';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { assertBranchAccess, assertOrgWide } from '../auth/branch-scope';
+import type { AuthenticatedUser } from '../auth/interfaces/auth.interface';
 import { MenuService } from './menu.service';
 import type {
   MenuCategoryRow,
@@ -48,6 +52,8 @@ const MENU_READ_ROLES = [
   'waiter',
   'kitchen_staff',
 ];
+
+type AuthedRequest = Request & { user?: AuthenticatedUser };
 
 /**
  * `/menu` — the menu module's HTTP surface.
@@ -100,7 +106,9 @@ export class MenuController {
   @Roles(...MENU_READ_ROLES)
   async branchMenu(
     @Param('branchId') branchId: string,
+    @Req() req: AuthedRequest,
   ): Promise<RenderedMenuNode[]> {
+    assertBranchAccess(req.user, branchId, 'The branch');
     return this.menuService.getFullMenu(this.connection, branchId);
   }
 
@@ -120,7 +128,13 @@ export class MenuController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...MENU_WRITE_ROLES)
   @HttpCode(201)
-  createCategory(@Body() dto: CreateCategoryDto): Promise<MenuCategoryRow> {
+  async createCategory(
+    @Body() dto: CreateCategoryDto,
+    @Req() req: AuthedRequest,
+  ): Promise<MenuCategoryRow> {
+    // An org-wide category appears in EVERY branch: a branch manager may not
+    // publish one for the whole café.
+    assertOrgWide(req.user, 'An org-wide category');
     return this.menuService.createCategory(this.connection, null, dto);
   }
 
@@ -128,10 +142,12 @@ export class MenuController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...MENU_WRITE_ROLES)
   @HttpCode(201)
-  createBranchCategory(
+  async createBranchCategory(
     @Param('branchId') branchId: string,
     @Body() dto: CreateCategoryDto,
+    @Req() req: AuthedRequest,
   ): Promise<MenuCategoryRow> {
+    assertBranchAccess(req.user, branchId, 'The branch');
     return this.menuService.createCategory(this.connection, branchId, dto);
   }
 
@@ -139,7 +155,12 @@ export class MenuController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...MENU_WRITE_ROLES)
   @HttpCode(201)
-  createItem(@Body() dto: CreateItemDto): Promise<MenuItemRow> {
+  async createItem(
+    @Body() dto: CreateItemDto,
+    @Req() req: AuthedRequest,
+  ): Promise<MenuItemRow> {
+    // Same rule as the org-wide category: it lands on every branch's menu.
+    assertOrgWide(req.user, 'An org-wide menu item');
     return this.menuService.createItem(this.connection, null, dto);
   }
 
@@ -147,10 +168,12 @@ export class MenuController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...MENU_WRITE_ROLES)
   @HttpCode(201)
-  createBranchItem(
+  async createBranchItem(
     @Param('branchId') branchId: string,
     @Body() dto: CreateItemDto,
+    @Req() req: AuthedRequest,
   ): Promise<MenuItemRow> {
+    assertBranchAccess(req.user, branchId, 'The branch');
     return this.menuService.createItem(this.connection, branchId, dto);
   }
 
@@ -159,20 +182,24 @@ export class MenuController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...MENU_WRITE_ROLES)
   @HttpCode(201)
-  addModifier(
+  async addModifier(
     @Param('itemId') itemId: string,
     @Body() dto: PackagedModifierDto,
+    @Req() req: AuthedRequest,
   ): Promise<MenuItemModifierRow> {
+    await this.assertItemScope(req.user, itemId);
     return this.menuService.addModifier(this.connection, itemId, dto);
   }
 
   @Patch('items/:itemId')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...MENU_WRITE_ROLES)
-  updateItem(
+  async updateItem(
     @Param('itemId') itemId: string,
     @Body() dto: UpdateItemDto,
+    @Req() req: AuthedRequest,
   ): Promise<MenuItemRow> {
+    await this.assertItemScope(req.user, itemId);
     return this.menuService.updateItem(this.connection, itemId, dto);
   }
 
@@ -183,14 +210,36 @@ export class MenuController {
   @Patch('items/:itemId/availability')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...MENU_WRITE_ROLES)
-  setAvailability(
+  async setAvailability(
     @Param('itemId') itemId: string,
     @Body() dto: SetItemAvailabilityDto,
+    @Req() req: AuthedRequest,
   ): Promise<MenuItemRow> {
+    await this.assertItemScope(req.user, itemId);
     return this.menuService.setAvailable(
       this.connection,
       itemId,
       dto.isAvailable,
     );
+  }
+
+  /**
+   * Confines a menu write to the item's own branch.
+   *
+   * An ORG-WIDE item belongs to the whole café, so only an owner may change
+   * it; a BRANCH item belongs to that branch, so only that branch (or an
+   * owner) may change it. Without this, the manager of branch A could rename
+   * an item that is on the menu of every branch of the café.
+   */
+  private async assertItemScope(
+    user: AuthenticatedUser | undefined,
+    itemId: string,
+  ): Promise<void> {
+    const branchId = await this.menuService.itemBranch(this.connection, itemId);
+    if (branchId === null) {
+      assertOrgWide(user, 'An org-wide menu item');
+      return;
+    }
+    assertBranchAccess(user, branchId, 'The menu item');
   }
 }

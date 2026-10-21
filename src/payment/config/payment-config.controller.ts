@@ -7,6 +7,7 @@ import {
   Put,
   UseGuards,
 } from '@nestjs/common';
+import { IsBoolean, IsOptional } from 'class-validator';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -14,10 +15,13 @@ import { TenantRequestContext } from '../../tenant/connection/tenant-request-con
 import { TenantNotFoundException } from '../../tenant/exceptions/tenant-not-found.exception';
 import { PaymentConfigService } from './payment-config.service';
 
-export interface SavePaymentConfigDto {
+export class SavePaymentConfigDto {
   /** The provider's config object, e.g. `{ secretKey, webhookSecret }`. */
   config?: unknown;
+
   /** Defaults to true. Activating one provider deactivates the others. */
+  @IsOptional()
+  @IsBoolean()
   isActive?: boolean;
 }
 

@@ -6,6 +6,7 @@ import type { BillingClock } from './clock';
 import {
   InvalidPlanChangeException,
   InvalidSubscriptionActionException,
+  PlanDowngradeExceedsLimitsException,
   SubscriptionChargeFailedException,
 } from './exceptions/billing.exceptions';
 import { DaysRemainingProrationStrategy } from './proration/days-remaining-proration.strategy';
@@ -76,6 +77,8 @@ describe('SubscriptionService', () => {
     findDueForUpdate: jest.Mock;
     findPlanById: jest.Mock;
     listPlans: jest.Mock;
+    findCurrentStatus: jest.Mock;
+    countActiveResources: jest.Mock;
     changePlan: jest.Mock;
     setStatus: jest.Mock;
     markPastDue: jest.Mock;
@@ -99,6 +102,8 @@ describe('SubscriptionService', () => {
       findDueForUpdate: jest.fn(),
       findPlanById: jest.fn(),
       listPlans: jest.fn(),
+      findCurrentStatus: jest.fn(),
+      countActiveResources: jest.fn(),
       changePlan: jest.fn(),
       setStatus: jest.fn(),
       markPastDue: jest.fn(),
@@ -119,6 +124,10 @@ describe('SubscriptionService', () => {
       listActiveTenants: jest.fn().mockResolvedValue([]),
     };
     clock = { now: () => NOW };
+    repository.countActiveResources.mockResolvedValue({
+      branches: 0,
+      staff: 0,
+    });
 
     service = new SubscriptionService(
       repository,
@@ -209,6 +218,28 @@ describe('SubscriptionService', () => {
       expect(provider.charge).not.toHaveBeenCalled();
       expect(result.chargedAmount).toBe(0);
       expect(result.creditedAmount).toBe(15);
+    });
+
+    it('refuses a downgrade the tenant does not fit into', async () => {
+      repository.findCurrentWithPlan.mockResolvedValue(
+        subscriptionRow({
+          plan_id: PRO,
+          plan_name: 'pro',
+          price_monthly: '50.00',
+        }),
+      );
+      repository.findPlanById.mockResolvedValue(planRow(STARTER, '20.00'));
+      repository.countActiveResources.mockResolvedValue({
+        branches: 4,
+        staff: 0,
+      });
+
+      await expect(
+        service.performAction(TENANT, 'downgrade', { planId: STARTER }),
+      ).rejects.toBeInstanceOf(PlanDowngradeExceedsLimitsException);
+
+      expect(repository.changePlan).not.toHaveBeenCalled();
+      expect(provider.charge).not.toHaveBeenCalled();
     });
 
     it('rejects an action labelled in the wrong direction', async () => {

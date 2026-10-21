@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { TenantRequestContext } from '../tenant/connection/tenant-request-context';
 import type { TenantScopedConnection } from '../tenant/connection/tenant-scoped-connection';
 import { AuthController } from './auth.controller';
@@ -30,6 +31,7 @@ describe('AuthController', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
+      imports: [ThrottlerModule.forRoot()],
       providers: [
         { provide: AuthService, useValue: authService },
         {

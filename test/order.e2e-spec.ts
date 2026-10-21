@@ -982,7 +982,10 @@ describeWithDb('OrderModule (integration)', () => {
   describe('AC4 — the KDS snapshot is branch scoped', () => {
     it('lists only the active orders of the requested branch', async () => {
       const inA = await dineInOrder(waiterToken);
-      const inB = await postOrder(waiterToken, {
+      // The owner is org-wide, so it may take an order in the other branch; the
+      // waiter below may not. The point of this test is that the ACTIVE LIST is
+      // branch scoped, which needs an order that exists in branch B.
+      const inB = await postOrder(ownerToken, {
         branchId: branchB,
         orderType: 'takeaway',
         items: [{ menuItemId, quantity: 1 }],
@@ -999,6 +1002,29 @@ describeWithDb('OrderModule (integration)', () => {
       expect(rows.map((row) => row.id)).not.toContain(
         body<{ id: string }>(inB).id,
       );
+    });
+
+    it('refuses a branch-confined user an order in another branch', async () => {
+      const response = await postOrder(waiterToken, {
+        branchId: branchB,
+        orderType: 'takeaway',
+        items: [{ menuItemId, quantity: 1 }],
+      });
+
+      expect(response.status).toBe(403);
+    });
+
+    it('refuses a branch-confined user the tickets of another branch', async () => {
+      const inB = await postOrder(ownerToken, {
+        branchId: branchB,
+        orderType: 'takeaway',
+        items: [{ menuItemId, quantity: 1 }],
+      });
+      expect(inB.status).toBe(201);
+
+      const response = await activeOrders(waiterToken, branchB);
+
+      expect(response.status).toBe(403);
     });
 
     it('drops completed and cancelled orders from the active list', async () => {

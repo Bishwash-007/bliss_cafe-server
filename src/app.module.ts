@@ -1,6 +1,8 @@
-import { Module } from '@nestjs/common';
+import { Module, ValidationPipe } from '@nestjs/common';
+import { APP_PIPE } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -37,6 +39,11 @@ import { TenantModule } from './tenant/tenant.module';
     // renewal job on it; a per-module `forRoot()` would create separate
     // explorers and make "is the job scheduled?" depend on import order.
     ScheduleModule.forRoot(),
+    // Rate limiting. The defaults are deliberately generous; the routes that
+    // matter (login, onboarding, webhooks) tighten them with `@Throttle`.
+    ThrottlerModule.forRoot({
+      throttlers: [{ ttl: 60_000, limit: 300 }],
+    }),
     TenantModule,
     PlatformModule,
     ReportingModule,
@@ -54,6 +61,30 @@ import { TenantModule } from './tenant/tenant.module';
     NotificationModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      /**
+       * The validation pipe is registered as a provider rather than in
+       * `main.ts`, because `main.ts` only runs in production: a test harness
+       * that built the app itself would otherwise skip validation entirely and
+       * a suite could pass while the deployed service rejected the same body.
+       *
+       * `whitelist` stays off on purpose. Turning it on strips any property
+       * without a decorator, which silently changes the request contract of
+       * every DTO that is not fully decorated yet. `forbidUnknownValues` is
+       * off for the same reason: a DTO class that has no decorators at all
+       * would otherwise fail every request with "unknown value" instead of
+       * being passed through untouched.
+       */
+      provide: APP_PIPE,
+      useValue: new ValidationPipe({
+        transform: true,
+        whitelist: false,
+        forbidUnknownValues: false,
+        transformOptions: { enableImplicitConversion: false },
+      }),
+    },
+  ],
 })
 export class AppModule {}

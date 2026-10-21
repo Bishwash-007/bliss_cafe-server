@@ -3,6 +3,14 @@
 -- transaction (a NestJS interceptor does this right after auth resolves the tenant).
 -- Any query that forgets a WHERE tenant_id = ... clause is still safe: Postgres
 -- silently filters rows outside the current tenant.
+--
+-- IDEMPOTENT
+-- ----------
+-- This file creates its policies inside a DO block, so the migration runner
+-- cannot tell from the schema alone whether it has already run. It is
+-- therefore written to be safe to run twice: the policy is dropped first and
+-- recreated with the same definition. Re-running it changes nothing, which is
+-- what lets the runner apply it to a database that already has it.
 
 DO $$
 DECLARE
@@ -20,6 +28,7 @@ BEGIN
         ])
     LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY;', t);
+        EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I;', t);
         EXECUTE format(
             'CREATE POLICY tenant_isolation ON %I
                 USING (tenant_id = current_setting(''app.tenant_id'', true)::uuid);',

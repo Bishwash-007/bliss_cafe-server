@@ -97,6 +97,56 @@ export class BillingRepository {
     return result.rows[0] ?? null;
   }
 
+  /**
+   * The status of the tenant's current subscription, or `null` when it has
+   * none.
+   *
+   * This is the one read the access guard needs on every authenticated
+   * request, so it is deliberately a single, cheap, indexed lookup.
+   */
+  async findCurrentStatus(
+    connection: TenantScopedConnection,
+    tenantId: string,
+  ): Promise<string | null> {
+    const result = await connection.query<{ status: string }>(
+      `SELECT s.status
+         FROM tenant_subscriptions s
+        WHERE s.tenant_id = $1
+        ORDER BY s.started_at DESC, s.id DESC
+        LIMIT 1`,
+      [tenantId],
+    );
+    return result.rows[0]?.status ?? null;
+  }
+
+  /**
+   * How many branches and how many staff the tenant actually has.
+   *
+   * A plan's `max_branches`/`max_staff` are ceilings, and a downgrade that
+   * would put the tenant over the new ceiling has to be refused: otherwise
+   * the tenant keeps the resources of the plan it just left.
+   */
+  async countActiveResources(
+    connection: TenantScopedConnection,
+    tenantId: string,
+  ): Promise<{ branches: number; staff: number }> {
+    const result = await connection.query<{
+      branches: number;
+      staff: number;
+    }>(
+      `SELECT
+         (SELECT count(*)::int FROM branches
+           WHERE tenant_id = $1 AND is_active = true) AS branches,
+         (SELECT count(*)::int FROM users u
+            JOIN roles r ON r.id = u.role_id
+           WHERE u.tenant_id = $1
+             AND u.is_active = true
+             AND r.name <> 'customer') AS staff`,
+      [tenantId],
+    );
+    return result.rows[0] ?? { branches: 0, staff: 0 };
+  }
+
   async findPlanById(
     connection: TenantScopedConnection,
     planId: string,

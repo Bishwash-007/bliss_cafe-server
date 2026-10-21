@@ -1,16 +1,36 @@
+import {
+  IsEmail,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
+
 /**
  * Inventory HTTP payloads.
  *
- * Plain interfaces, matching the menu module: this project runs no
- * `class-validator` pipe, so a "DTO" here is a documented shape and the service
- * is what rejects bad input. The type aliases at the bottom line the DTOs up with
- * the service's own input types where they are genuinely the same thing, so a
- * field can never drift between the HTTP contract and the domain.
+ * The decorators reject malformed JSON; the inventory service still owns the
+ * *business* rules (is this adjustment an explanation, or a typo?) because
+ * those are testable without HTTP.
  */
 
-export interface CreateSupplierDto {
-  name: string;
+export class CreateSupplierDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(150)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
   contactPhone?: string | null;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(150)
   contactEmail?: string | null;
 }
 
@@ -21,24 +41,61 @@ export interface CreateSupplierDto {
  * preserved all the way down — the controller forwards only the keys present in
  * the body, and the repository writes only those columns.
  */
-export interface UpdateSupplierDto {
+export class UpdateSupplierDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
   name?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
   contactPhone?: string | null;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(150)
   contactEmail?: string | null;
 }
 
-export interface CreateInventoryItemDto {
-  branchId: string;
-  name: string;
+export class CreateInventoryItemDto {
+  @IsString()
+  @IsNotEmpty()
+  branchId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(150)
+  name!: string;
+
   /** `kg`, `l`, `pcs`, ... Kept free-form, as the schema is. */
-  unit: string;
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(20)
+  unit!: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1000000)
   quantityOnHand?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1000000)
   reorderThreshold?: number;
+
+  @IsOptional()
+  @IsString()
   supplierId?: string | null;
 }
 
-export interface UpdateReorderThresholdDto {
-  reorderThreshold: number;
+export class UpdateReorderThresholdDto {
+  @IsNumber()
+  @Min(0)
+  @Max(1000000)
+  reorderThreshold!: number;
 }
 
 /**
@@ -50,12 +107,17 @@ export interface UpdateReorderThresholdDto {
  *
  * There is deliberately NO `supplierId` here even though an item has a standing
  * supplier. `stock_movements` has no `supplier_id` column, so a per-delivery
- * supplier has nowhere to be stored, and accepting the field and dropping it would
- * tell a client their override was recorded when it was not. Who actually
+ * supplier has nowhere to be stored, and accepting the field and dropping it
+ * would tell a client their override was recorded when it was not. Who actually
  * delivered goes in `note`. See `StockInInput` for the full reasoning.
  */
-export interface StockInDto {
-  quantity: number;
+export class StockInDto {
+  @IsNumber()
+  quantity!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
   note?: string | null;
 }
 
@@ -69,23 +131,39 @@ export interface StockInDto {
  * `wastage` for a stocktake correction would be worse: it would report spoilage
  * that never happened.
  */
-export interface AdjustStockDto {
+export class AdjustStockDto {
   /** Signed delta. Must not be zero: a zero "adjustment" is a no-op on the books. */
-  quantity: number;
-  note: string;
+  @IsNumber()
+  quantity!: number;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  note!: string;
 }
 
-export interface SetRecipeIngredientDto {
-  menuItemId: string;
-  inventoryItemId: string;
+export class SetRecipeIngredientDto {
+  @IsString()
+  @IsNotEmpty()
+  menuItemId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  inventoryItemId!: string;
+
   /** How much of the item one unit of the menu item consumes. */
-  quantityUsed: number;
+  @IsNumber()
+  @Min(0)
+  @Max(1000000)
+  quantityUsed!: number;
 }
 
-export interface ListDiscrepanciesQueryDto {
+export class ListDiscrepanciesQueryDto {
   /**
    * Defaults to the review queue (`failed` + `partial`). Pass an explicit status
    * to include the settled rows.
    */
+  @IsOptional()
+  @IsString()
   status?: 'pending' | 'completed' | 'partial' | 'failed';
 }

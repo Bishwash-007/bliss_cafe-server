@@ -5,6 +5,32 @@
 
 ---
 
+## 0. Running the API
+
+```bash
+cp .env.example .env          # then set JWT_SECRET to a long random value
+docker compose up -d --build  # postgres + redis + migrations + api
+```
+
+`docker compose` runs a **migration** service before the API starts. It applies
+the pending files in `db/migrations`, records them in `schema_migrations`, and
+exits. The API waits for it to succeed, so a release that cannot migrate never
+goes live. To run the migrations by hand:
+
+```bash
+npm run db:migrate             # against the database in .env
+npm run db:migrate -- --allow-checksum-drift
+```
+
+The runner is idempotent: a second run finds nothing to do. A database that
+was created by the old init-only mount is detected and baselined rather than
+re-created.
+
+The API reference is [`curl.md`](./curl.md) — every route, its roles, its
+branch scope, and the error codes it answers with.
+
+---
+
 ## 1. Functional Requirements
 
 ### 1.1 Platform / Tenant Management (SaaS layer)

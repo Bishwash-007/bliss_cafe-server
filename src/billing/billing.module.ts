@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { PaymentModule } from '../payment';
 import { BillingController } from './billing.controller';
 import { BillingRepository } from './billing.repository';
 import { BILLING_CLOCK, SystemBillingClock } from './clock';
 import { DaysRemainingProrationStrategy } from './proration/days-remaining-proration.strategy';
 import { PRORATION_STRATEGY } from './proration/proration.strategy';
+import { SubscriptionAccessGuard } from './guards/subscription-access.guard';
 import { SubscriptionRenewalScheduler } from './subscription-renewal.scheduler';
 import { SubscriptionService } from './subscription.service';
 
@@ -52,6 +54,16 @@ import { SubscriptionService } from './subscription.service';
       useExisting: DaysRemainingProrationStrategy,
     },
     { provide: BILLING_CLOCK, useExisting: SystemBillingClock },
+    /**
+     * The subscription state is a policy of THIS module, so the guard that
+     * enforces it lives here — but it has to apply to every tenant route, so
+     * it is registered as a global guard. A subscription status that only the
+     * billing module reads is a status nobody obeys.
+     */
+    {
+      provide: APP_GUARD,
+      useClass: SubscriptionAccessGuard,
+    },
   ],
   exports: [SubscriptionService],
 })

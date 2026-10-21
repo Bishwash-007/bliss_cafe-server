@@ -43,6 +43,9 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=build /usr/src/app/dist ./dist
+# The migration runner reads the SQL from db/migrations, so the migrations
+# have to travel with the image: a deploy runs them before the API starts.
+COPY db ./db
 
 # The `node` user ships with the base image (uid 1000). Running as root would
 # hand a compromised process the ability to write to the image filesystem.

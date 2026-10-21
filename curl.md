@@ -87,8 +87,75 @@ The database vocabulary is:
 `super_admin`, `org_owner`, `branch_manager`, `receptionist`, `waiter`,
 `kitchen_staff`, `customer`.
 
-Not every route has a role restriction. In particular, some authenticated reads
-only require a valid JWT; those are called out below.
+Not every route has a role restriction. After the role and branch-scope work,
+the only routes that need nothing but a valid token are `/auth/me` and
+`/auth/logout`; everything else names the roles it accepts.
+
+### Branch scope
+
+A token that carries a `branchId` is **confined to that branch**. Two roles are
+never confined — `super_admin` and `org_owner` see and write every branch of
+their tenant. A token with no `branchId` is not confined either: it is an
+org-wide account.
+
+Branch scope is enforced on the **orders, branches and menu** routes, and on
+nothing else yet: inventory, staff, CRM and reporting still see the whole
+tenant. Where it is enforced:
+
+- reading a list is **filtered** — `GET /branches` returns only the caller's own
+  branch for a branch-confined account, and every branch for an org-wide one;
+- reading or writing **another** branch is **refused** with `403`.
+
+### Subscription state
+
+The tenant's subscription decides what its tokens may do. The state is read
+from the tenant's current `tenant_subscriptions` row:
+
+| Subscription | Effect on tenant routes |
+|---|---|
+| `active`, `trialing` | unrestricted |
+| no subscription row | unrestricted — onboarding without a plan is a supported flow |
+| `past_due` | **read-only**: `GET`/`HEAD`/`OPTIONS` are served, every write is refused with `402` |
+| `cancelled` | **everything is refused** with `402`, reads included |
+
+These paths are exempt, whatever the state:
+
+`/auth`, `/billing`, `/onboarding`, `/platform`, `/webhooks`.
+
+`/billing` in particular must stay open: it is where an owner settles the
+invoice that put the tenant in `past_due`. `/auth` must stay open for the same
+reason — a locked-out tenant could not log in to pay.
+
+The check only runs for requests that carry an `Authorization` header, so an
+anonymous request is answered by the route's own guard (`401`), not by the
+subscription state.
+
+### Rate limiting
+
+Requests are counted per client address, per minute. Exceeding a limit answers
+`429` with a `Retry-After` header.
+
+| Route | Default limit | Override |
+|---|---|---|
+| `POST /auth/login` | 20 / minute | `AUTH_LOGIN_RATE_LIMIT` |
+| `POST /auth/refresh` | 30 / minute | `AUTH_REFRESH_RATE_LIMIT` |
+| `POST /onboarding` | 10 / minute | `ONBOARDING_RATE_LIMIT` |
+| every other route | 300 / minute | — |
+
+The login limiter counts **attempts**, not successes: a wrong password fills
+the bucket exactly like a right one.
+
+### CORS and security headers
+
+Responses carry the standard hardening headers (`X-Content-Type-Options`,
+`X-Frame-Options`, `X-DNS-Prefetch-Control`, `Strict-Transport-Security`,
+`Content-Security-Policy`, and the `Cross-Origin-*` family).
+
+Browser origins are restricted by `CORS_ORIGINS`, a comma-separated list of
+exact origins. In production an **unset** value means *no browser origin is
+allowed* — the API still serves server-to-server callers, and a deploy that
+forgot to configure this fails closed instead of opening the API to the whole
+internet. Outside production the default is "any origin".
 
 ### Request and response formats
 
@@ -108,6 +175,17 @@ Nest's default exception body is used:
 {
   "statusCode": 400,
   "message": "Human-readable message or array of messages",
+  "error": "Bad Request"
+}
+```
+
+A request body that fails validation answers `400` with `message` as an **array**
+of strings, one per failed rule:
+
+```json
+{
+  "statusCode": 400,
+  "message": ["email must be an email", "password must be longer than or equal to 8 characters"],
   "error": "Bad Request"
 }
 ```
@@ -239,6 +317,22 @@ Required: `orgName`, `slug`, `firstBranch.name`, `owner.email`,
 `owner.password`. `planId` is optional but a tenant onboarded without it has no
 subscription and is unbilled.
 
+The body is validated before anything is written, so a bad payload is refused
+with `400` and leaves no tenant behind:
+
+| Field | Rule |
+|---|---|
+| `orgName` | required, 1–120 characters |
+| `slug` | required, 2–50 characters, letters/digits/`-`/`_` |
+| `planId` | optional, must be an existing plan |
+| `firstBranch` | **required** |
+| `firstBranch.name` | required, 1–120 characters |
+| `firstBranch.address` | optional |
+| `defaultTables` | optional, 0–50 |
+| `owner` | **required** |
+| `owner.email` | required, must be an email |
+| `owner.password` | **required**, 8–72 characters |
+
 Response (`201`):
 
 ```json
@@ -253,10 +347,12 @@ Response (`201`):
 
 Then log in with `X-Tenant-Id: acme-cafe`.
 
-> **Current validation caveat:** onboarding is not guarded by a validation pipe.
-> A body missing `firstBranch` currently produces `500`, and an empty/missing
-> owner password is hashed as an empty password rather than rejected. Validate
-> the payload before relying on this endpoint in production.
+```bash
+# A payload with no firstBranch is refused with 400, not 500.
+curl -sS -X POST "$BASE_URL/onboarding" \
+  -H 'Content-Type: application/json' \
+  -d '{"orgName":"Acme","slug":"acme","owner":{"email":"owner@acme.test"}}'
+```
 
 ---
 
@@ -264,14 +360,23 @@ Then log in with `X-Tenant-Id: acme-cafe`.
 
 | Method | Path | Auth | Roles |
 |---|---|---|---|
-| `GET` | `/branches` | bearer | any authenticated role |
+| `GET` | `/branches` | bearer | every staff role (not `customer`) |
 | `POST` | `/branches` | bearer | `super_admin`, `org_owner`, `branch_manager` |
 | `PATCH` | `/branches/:id` | bearer | `super_admin`, `org_owner`, `branch_manager` |
 | `DELETE` | `/branches/:id` | bearer | `super_admin`, `org_owner`, `branch_manager` |
-| `GET` | `/branches/:id/tables` | bearer | any authenticated role |
+| `GET` | `/branches/:id/tables` | bearer | every staff role (not `customer`) |
 | `POST` | `/branches/:id/tables` | bearer | `super_admin`, `org_owner`, `branch_manager` |
 
 `DELETE` deactivates the branch; it does not hard-delete it.
+
+**Branch scope.** A branch-confined token sees only its own branch:
+
+- `GET /branches` is **filtered** to the caller's branch. A token with no
+  `branchId` (or an `org_owner`/`super_admin` token) sees every branch.
+- `GET /branches/:id/tables`, `PATCH /branches/:id`, `DELETE /branches/:id` and
+  `POST /branches/:id/tables` answer `403` when `:id` is not the caller's branch.
+
+A `customer` token is refused with `403` on every route in this section.
 
 ### List branches
 
@@ -356,6 +461,16 @@ curl -sS -X POST "$BASE_URL/branches/<branchId>/tables" \
 A category/item created without `branchId` is org-wide; one created under
 `/branches/:branchId` overrides just that branch. Prices are computed by the
 server at order time.
+
+**Branch scope.** The two org-wide write routes (`POST /menu/categories` and
+`POST /menu/items`) require an org-wide role: a `branch_manager` is refused
+with `403`, because an org-wide item is visible in every branch. The
+branch-specific write routes (`/menu/branches/:branchId/...`) refuse a
+branch-confined token whose branch is not `:branchId`.
+
+The item routes (`/menu/items/:itemId/...`) look the item up and compare its
+branch with the caller's: an item of another branch, or an org-wide item, is
+refused with `403` for a branch-confined caller.
 
 ### Public menu
 
@@ -474,12 +589,23 @@ curl -sS -X PATCH "$BASE_URL/menu/items/<itemId>/availability" \
 |---|---|---|---|
 | `POST` | `/orders` | bearer | `super_admin`, `org_owner`, `branch_manager`, `receptionist`, `waiter` |
 | `POST` | `/orders/:id/transition` | bearer | above + `kitchen_staff` |
-| `GET` | `/orders/branches/:branchId/active` | bearer | any authenticated role |
-| `GET` | `/orders/branches/:branchId` | bearer | any authenticated role |
-| `GET` | `/orders/:id` | bearer | any authenticated role |
+| `GET` | `/orders/branches/:branchId/active` | bearer | every staff role (not `customer`) |
+| `GET` | `/orders/branches/:branchId` | bearer | every staff role (not `customer`) |
+| `GET` | `/orders/:id` | bearer | every staff role (not `customer`) |
 
 Order money is computed server-side from the menu. Do **not** send
 `unitPrice`, `subtotal`, or `totalAmount`.
+
+**Branch scope.** A branch-confined token may only work in its own branch:
+
+- `POST /orders` refuses a `branchId` other than the caller's with `403`.
+- `GET /orders/branches/:branchId` and `/active` refuse another branch with
+  `403`.
+- `GET /orders/:id` and `POST /orders/:id/transition` load the order first and
+  refuse it with `403` when it belongs to another branch.
+
+A `customer` token is refused with `403` on every route in this section — a
+customer may pay for an order, but may not read the café's ticket stream.
 
 ### Create an order
 
@@ -1511,26 +1637,32 @@ curl -sS -X POST "$BASE_URL/billing/subscription/change-plan" \
 
 Renewal failures move the subscription to `past_due`; successful renewal extends
 `ends_at` by 30 days. The daily sweep runs at 02:00 and uses row locks to prevent
-double charging. It does not currently gate the tenant's other API access.
+double charging.
+
+The subscription state **does** gate the tenant's other routes: a `past_due`
+tenant is read-only and a `cancelled` tenant is refused outright, both with
+`402`. See [Subscription state](#subscription-state).
 
 ---
 
 ## Platform
 
-> **Security warning:** `GET /platform/tenants` currently has **no authentication
-> guard**. It returned tenant rows unauthenticated during local verification.
-> Treat this as a bug and do not expose `/platform/*` publicly until it is fixed.
-> The intended role is `super_admin`.
+`/platform/*` skips tenant resolution, but it is **not** anonymous: it is the
+SaaS administrator's surface, and it requires a `super_admin` token.
 
 | Method | Path | Auth | Roles |
 |---|---|---|---|
-| `GET` | `/platform/tenants` | **none today** | intended `super_admin` |
+| `GET` | `/platform/tenants` | bearer | `super_admin` |
 | `GET` | `/platform/reports/overview` | bearer | `super_admin` |
 
-### List all tenants (currently unprotected)
+- no token → `401`
+- a token that is not `super_admin` → `403`
+
+### List all tenants
 
 ```bash
-curl -sS "$BASE_URL/platform/tenants"
+curl -sS "$BASE_URL/platform/tenants" \
+  -H "Authorization: Bearer $SUPER_ADMIN_TOKEN"
 ```
 
 Response: `[{"id":"uuid","slug":"beanhouse","status":"active"}]`
@@ -1561,37 +1693,32 @@ tables). Without that, the report fails safe with no cross-tenant orders.
 | `201` | Created (onboarding, branches, menu, orders) |
 | `202` | Legacy `POST /checkout` acknowledgement |
 | `204` | Successful delete or recipe write with no body |
-| `400` | Invalid input, illegal state transition/action, bad report range |
+| `400` | Invalid input (including body validation), illegal state transition/action, bad report range |
 | `401` | Missing/invalid access token |
+| `402` | The tenant's subscription is `past_due` (write refused) or `cancelled` (everything refused) |
 | `403` | Role or branch-scope denial; inactive tenant |
 | `404` | Missing tenant/resource; unknown route under a tenant |
-| `409` | Conflict (e.g. duplicate provider reference/order already paid) |
-| `500` | Unexpected server error; currently reachable via unvalidated onboarding bodies |
+| `409` | Conflict (e.g. duplicate provider reference/order already paid, downgrade over the plan's limits) |
+| `422` | The payload is well-formed but the request cannot be processed (unsupported promotion type, unsupported payment type) |
+| `429` | Rate limit exceeded; see [Rate limiting](#rate-limiting) |
+| `500` | Unexpected server error |
 
 ### Important limitations
 
-- **No global `ValidationPipe`.** DTOs are mostly interfaces/plain classes; some
-  routes validate manually, others can throw `500` on malformed JSON shapes.
-- **No CORS setup on the HTTP app.** A browser frontend on another origin cannot
-  call this API unless a proxy or reverse proxy adds CORS headers.
-- **No Swagger/OpenAPI and no `/health` endpoint.** The container health check is
-  a TCP connect; `GET /` itself passes through tenant resolution.
 - **Raw rows.** Many responses expose database `snake_case` fields and numeric
   strings. Do not assume camelCase everywhere.
 - **No pagination** on most list routes.
-- **No rate limiting** on login, refresh, onboarding, or webhook endpoints.
-- **`JWT_SECRET` has a development fallback.** Never run without setting it.
-- **Migrations are init-only** in Docker (`/docker-entrypoint-initdb.d`). New
-  migration files are not applied to an existing database volume automatically;
-  a migration runner/version table is not present.
+- **No Swagger/OpenAPI and no `/health` endpoint.** The container health check is
+  a TCP connect; `GET /` itself passes through tenant resolution.
 - **Billing has no invoice/charge ledger, no persisted credit balance, no
   card-on-file token, and no charge idempotency key.** Renewal is only truly
   unattended for providers/configurations that can charge server-side. Razorpay
   `charge` creates a gateway order (`pending`), so billing treats it as unpaid and
   moves the subscription to `past_due`.
-- **A cancelled or past-due subscription does not block other tenant APIs.**
-  Billing state is not consulted by orders, staff, inventory, reporting, etc.
-- **Downgrades do not enforce the target plan's branch/staff limits.**
+- **Downgrade credits are not persisted.** A downgrade reports the credit it
+  would give, but nothing stores it and nothing applies it to a later invoice.
+  The downgrade itself is refused with `409` when the tenant has more branches
+  or staff than the target plan allows.
 - **Customer/OTP flows are not implemented.** `validateOtp` returns `null`; the
   OTP strategy is a stub.
 - **Notification delivery is a logging stub.** The queue, retry, and dead-letter

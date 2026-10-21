@@ -1,12 +1,26 @@
+import { Type } from 'class-transformer';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import type { OrderType } from '../events/order-events';
 
 /**
  * Order write payloads.
  *
- * This project runs no `class-validator` pipe, so these stay plain interfaces
- * and the *semantic* rules (is that a real menu item? is that status known? is
- * that transition legal?) are enforced in `OrderService`, where they can be
- * tested directly and reused by non-HTTP callers.
+ * The transport layer now rejects missing/wrongly-typed fields. The
+ * *semantic* rules (is that a real menu item? is that status known? is that
+ * transition legal?) stay in `OrderService`, where they can be tested directly
+ * and reused by non-HTTP callers.
  *
  * ## Money is NOT accepted from the client
  *
@@ -18,35 +32,64 @@ import type { OrderType } from '../events/order-events';
  * post its own `totalAmount` would be a client that can sell a flat white for
  * one cent.
  */
+export class CreateOrderModifierDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  name!: string;
 
-/** One line on the ticket. `menuItemId` may be the org-wide id or the branch override id. */
-export interface CreateOrderItemDto {
-  menuItemId: string;
-  quantity?: number;
-  notes?: string | null;
-  modifiers?: CreateOrderModifierDto[];
-}
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  optionName!: string;
 
-/**
- * A chosen modifier variant. Identified the way the menu stores it — the
- * (`name`, `optionName`) pair, e.g. `('Size', 'Large')` — and priced
- * server-side from `menu_item_modifiers.extra_price`. `modifierId` is optional
- * and only a fast path: the order row snapshots it when supplied so history can
- * be joined back to the live modifier.
- */
-export interface CreateOrderModifierDto {
-  name: string;
-  optionName: string;
+  @IsOptional()
+  @IsString()
   modifierId?: string | null;
 }
 
-export interface CreateOrderDto {
+export class CreateOrderItemDto {
+  @IsString()
+  @IsNotEmpty()
+  menuItemId!: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  quantity?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  notes?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateOrderModifierDto)
+  modifiers?: CreateOrderModifierDto[];
+}
+
+export class CreateOrderDto {
   /** Which branch's kitchen this ticket belongs to (the KDS room). */
-  branchId: string;
-  /** Required for `dine_in`; ignored for takeaway/delivery. */
+  @IsString()
+  @IsNotEmpty()
+  branchId!: string;
+
+  /** Required for `dine_in`; the service enforces that pairing. */
+  @IsOptional()
+  @IsString()
   tableId?: string | null;
+
+  @IsOptional()
+  @IsString()
   customerId?: string | null;
+
+  @IsOptional()
+  @IsString()
   orderType?: OrderType;
+
   /**
    * Idempotency key from the mobile offline action queue.
    *
@@ -54,8 +97,17 @@ export interface CreateOrderDto {
    * key returns the ORIGINAL order instead of failing on the
    * `idx_orders_client_action` unique index.
    */
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
   clientActionId?: string | null;
-  items: CreateOrderItemDto[];
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CreateOrderItemDto)
+  items!: CreateOrderItemDto[];
+
   /**
    * Known gap, called out here so nobody mistakes it for a finished feature:
    * the schema has no tenant-level tax rate or currency setting yet (the
@@ -66,11 +118,20 @@ export interface CreateOrderDto {
    * implementation belongs with the per-tenant tax/discount rules and the
    * audit log the design calls for.
    */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
   taxAmount?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
   discountAmount?: number;
 }
 
 /** Requested target status for `POST /orders/:id/transition`. */
-export interface TransitionOrderDto {
-  status: string;
+export class TransitionOrderDto {
+  @IsString()
+  @IsNotEmpty()
+  status!: string;
 }

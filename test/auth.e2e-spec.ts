@@ -314,6 +314,37 @@ describeWithDb('AuthModule (integration)', () => {
     });
   });
 
+  describe('a customer token reads no staff data', () => {
+    // A `customer` account is a real credential: it logs in, it holds a valid
+    // JWT, and the JWT alone used to be enough to read the café's tickets and
+    // its branch list. The staff surfaces are role-restricted now.
+    it.each([
+      ['GET', '/branches'],
+      ['GET', `/branches/${B1}/tables`],
+      ['GET', `/orders/branches/${B1}/active`],
+      ['GET', `/orders/branches/${B1}`],
+      ['GET', `/menu/branches/${B1}`],
+    ])('refuses %s %s to a customer', async (method, path) => {
+      const { body } = await login(T1, 'customer@cafe.test');
+      const response = await request(app.getHttpServer())
+        .get(path)
+        .set('Authorization', `Bearer ${body.accessToken ?? ''}`)
+        .set('X-Tenant-Id', T1);
+
+      expect(response.status).toBe(403);
+    });
+
+    it('still lets a waiter read the branch list', async () => {
+      const { body } = await login(T1, 'waiter@cafe.test');
+      const response = await request(app.getHttpServer())
+        .get('/branches')
+        .set('Authorization', `Bearer ${body.accessToken ?? ''}`)
+        .set('X-Tenant-Id', T1);
+
+      expect(response.status).toBe(200);
+    });
+  });
+
   describe('refresh token rotation', () => {
     it('rotates to a new token and invalidates the previous one', async () => {
       const { body: loginBody } = await login(T1, 'waiter@cafe.test');

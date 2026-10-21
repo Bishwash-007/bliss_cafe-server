@@ -49,6 +49,31 @@ services:
       timeout: 5s
       retries: 10
 
+  # Applies the pending schema migrations, then exits.
+  #
+  # This is the step that makes a released migration reach an existing
+  # database: the volume in `db/migrations` only ever ran when Postgres
+  # initialised an empty data directory, so before this service existed a
+  # production schema could only change by recreating the database. The API
+  # waits for this service to finish successfully, so the app never starts
+  # against a schema it does not expect.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bliss_cafe_migrate
+    restart: "no"
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: ${DATABASE_USER:-cafe_admin}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-cafe_pass}
+      DATABASE_NAME: ${DATABASE_NAME:-cafe_saas}
+    command: ["node", "dist/database/migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     build:
       context: .
@@ -93,6 +118,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # The schema must be current before the app serves a request. If a
+      # migration fails, this service never starts the API — which is the
+      # point: a release that cannot migrate should not go live.
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "node", "-e", "require('net').connect(Number(process.env.PORT)||3000,'127.0.0.1').on('connect',function(){process.exit(0)}).on('error',function(){process.exit(1)})"]
       interval: 30s

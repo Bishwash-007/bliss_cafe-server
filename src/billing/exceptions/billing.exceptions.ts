@@ -1,9 +1,11 @@
 import {
   BadRequestException,
+  ConflictException,
   HttpException,
   HttpStatus,
   NotFoundException,
 } from '@nestjs/common';
+import type { BillingPlan } from '../billing.types';
 import type { SubscriptionAction } from '../state/subscription-state';
 
 /**
@@ -100,9 +102,63 @@ export class SubscriptionChargeFailedException extends HttpException {
   }
 }
 
+/**
+ * A downgrade that the tenant's own usage does not fit into.
+ *
+ * A plan's `max_branches`/`max_staff` are ceilings, and a ceiling the tenant
+ * is already above is not a ceiling: downgrading to it would keep every
+ * resource of the plan the tenant just left. The tenant has to reduce its
+ * footprint first, or move to a plan that fits.
+ */
+export class PlanDowngradeExceedsLimitsException extends ConflictException {
+  constructor(
+    readonly usage: { branches: number; staff: number },
+    readonly plan: BillingPlan,
+  ) {
+    super(
+      `Cannot downgrade to plan '${plan.id}': this organisation has ` +
+        `${usage.branches} active branch(es) and ${usage.staff} staff member(s), ` +
+        `but the plan allows ${plan.maxBranches} and ${plan.maxStaff}.`,
+    );
+  }
+}
+
 /** A provider or plan configuration problem that prevented a charge. */
 export class BillingConfigurationException extends BadRequestException {
   constructor(reason: string) {
     super(`Billing is not configured correctly: ${reason}`);
+  }
+}
+
+/**
+ * The tenant's subscription is `past_due` and the request tried to WRITE.
+ *
+ * 402 rather than 403: the tenant is not forbidden, it is owed money. The
+ * billing routes stay open so the owner can settle the invoice, and reads stay
+ * open so the owner can see what is owed.
+ */
+export class SubscriptionPastDueException extends HttpException {
+  constructor() {
+    super(
+      'This subscription is past due. Settle the outstanding invoice under ' +
+        '/billing before the café can change anything.',
+      HttpStatus.PAYMENT_REQUIRED,
+    );
+  }
+}
+
+/**
+ * The tenant's subscription was cancelled.
+ *
+ * `cancelled` is terminal: the tenant may read its data and may open a new
+ * subscription, but it may not operate the café any more.
+ */
+export class SubscriptionCancelledException extends HttpException {
+  constructor() {
+    super(
+      'This subscription is cancelled. The café is read-only until a new ' +
+        'subscription is started.',
+      HttpStatus.PAYMENT_REQUIRED,
+    );
   }
 }

@@ -1,8 +1,30 @@
+import {
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
+  IsEmail,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+  ValidateIf,
+} from 'class-validator';
+
+const isPresent = (_object: unknown, value: unknown): boolean =>
+  value !== undefined;
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
  * CRM HTTP payloads.
  *
- * Plain interfaces, matching the rest of the project: no `class-validator`
- * pipe is installed, so the service validates and the DTO documents.
+ * The decorators reject malformed JSON; the CRM service still owns the
+ * *business* rules (is this discount type registered? is this promotion
+ * already running?) because those are testable without HTTP.
  */
 
 /**
@@ -19,11 +41,25 @@
  * over the spelling of their name. `PATCH /customers/:id` is the deliberate way
  * to fill in a birthday later.
  */
-export interface CustomerLookupDto {
-  phone: string;
+export class CustomerLookupDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(30)
+  phone!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
   fullName?: string | null;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(150)
   email?: string | null;
+
   /** Calendar day, `YYYY-MM-DD`; not an instant. Null means "unknown". */
+  @IsOptional()
+  @Matches(DATE_ONLY)
   dateOfBirth?: string | null;
 }
 
@@ -35,7 +71,9 @@ export interface CustomerLookupDto {
  * side effect of typing a phone number at the counter. `null` clears a
  * previously stored day.
  */
-export interface UpdateCustomerDto {
+export class UpdateCustomerDto {
+  @IsOptional()
+  @Matches(DATE_ONLY)
   dateOfBirth?: string | null;
 }
 
@@ -47,7 +85,11 @@ export interface UpdateCustomerDto {
  * silently send to a smaller audience. An empty list is rejected: "nobody" is
  * not an announcement, it is a mistake.
  */
-export interface AnnouncePromotionDto {
+export class AnnouncePromotionDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
   customerIds?: string[] | null;
 }
 
@@ -58,16 +100,21 @@ export interface AnnouncePromotionDto {
  * later scheduler) can choose the tenant's local calendar day, which the schema
  * cannot derive until tenants have a timezone.
  */
-export interface AnnounceBirthdaysDto {
+export class AnnounceBirthdaysDto {
+  @IsOptional()
+  @Matches(DATE_ONLY)
   date?: string | null;
 }
 
 /** Query for `GET /customers`. */
-export interface CustomerQueryDto {
+export class CustomerQueryDto {
   /**
    * Exact phone number to look up. When present, the response is that one
    * customer (or 404); when absent, the tenant's customers are listed.
    */
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
   phone?: string;
 }
 
@@ -78,16 +125,40 @@ export interface CustomerQueryDto {
  * `discountValue` is the percentage (`12.5`) or the money amount (`5.00`),
  * matching the meaning of the `discount_type` column.
  */
-export interface CreatePromotionDto {
+export class CreatePromotionDto {
   /** Case-insensitive identifier, stored uppercase. `SPRING10`. */
-  code: string;
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
+  code!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
   description?: string | null;
-  discountType: string;
-  discountValue: number;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
+  discountType!: string;
+
+  @IsNumber()
+  @Min(0)
+  @Max(1000000)
+  discountValue!: number;
+
   /** ISO-8601 instant with an offset. Omit for "no start bound". */
+  @IsOptional()
+  @IsString()
   startsAt?: string | null;
+
   /** ISO-8601 instant with an offset. Omit for "no end bound". */
+  @IsOptional()
+  @IsString()
   endsAt?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
   isActive?: boolean;
 }
 
@@ -98,26 +169,61 @@ export interface CreatePromotionDto {
  * and `description` (remove the bound/description); for the fields that define
  * the promotion (`code`, `discountType`, `discountValue`) `null` is rejected.
  */
-export interface UpdatePromotionDto {
+export class UpdatePromotionDto {
+  @ValidateIf(isPresent)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
   code?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
   description?: string | null;
+
+  @ValidateIf(isPresent)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
   discountType?: string;
+
+  @ValidateIf(isPresent)
+  @IsNumber()
+  @Min(0)
+  @Max(1000000)
   discountValue?: number;
+
+  @IsOptional()
+  @IsString()
   startsAt?: string | null;
+
+  @IsOptional()
+  @IsString()
   endsAt?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
   isActive?: boolean;
 }
 
 /** Query for `GET /promotions`. */
-export interface PromotionQueryDto {
+export class PromotionQueryDto {
   /** `true` to list only active promotions. Anything else lists all. */
+  @IsOptional()
+  @IsString()
   activeOnly?: string | boolean;
 }
 
 /** A promotion being applied to a subtotal. */
-export interface ApplyPromotionDto {
+export class ApplyPromotionDto {
   /** The promotion code, case-insensitive. */
-  code: string;
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
+  code!: string;
+
   /** The pre-discount amount. A non-negative money amount. */
-  subtotal: number;
+  @IsNumber()
+  @Min(0)
+  subtotal!: number;
 }

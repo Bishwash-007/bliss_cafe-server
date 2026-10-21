@@ -67,14 +67,19 @@ export class BranchRepository {
   findAll(
     connection: TenantScopedConnection,
     tenantId: string,
+    branchId?: string,
   ): Promise<BranchRow[]> {
+    if (branchId !== undefined && !isUuid(branchId)) {
+      return Promise.resolve([]);
+    }
     return connection
       .query<BranchRow>(
         `SELECT id, tenant_id, name, address, phone, timezone, is_active, created_at
            FROM branches
           WHERE tenant_id = $1
+            AND ($2::uuid IS NULL OR id = $2)
           ORDER BY created_at, id`,
-        [tenantId],
+        [tenantId, branchId ?? null],
       )
       .then((result) => result.rows);
   }

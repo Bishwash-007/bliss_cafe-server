@@ -25,6 +25,7 @@ import {
   InvalidPlanChangeException,
   InvalidSubscriptionActionException,
   MissingPlanChangeTargetException,
+  PlanDowngradeExceedsLimitsException,
   PlanNotFoundException,
   SubscriptionChargeFailedException,
   SubscriptionNotFoundException,
@@ -319,6 +320,23 @@ export class SubscriptionService {
       actualDirection !== action
     ) {
       throw new InvalidPlanChangeException(action, oldPlan.id, newPlan.id);
+    }
+
+    // A downgrade must FIT the tenant. The plan's limits are ceilings, and a
+    // ceiling the tenant is already above is not a ceiling — the check runs
+    // before any proration or gateway call so a refused downgrade costs
+    // nothing.
+    if (action === 'downgrade') {
+      const usage = await this.repository.countActiveResources(
+        connection,
+        tenantId,
+      );
+      if (
+        usage.branches > newPlan.maxBranches ||
+        usage.staff > newPlan.maxStaff
+      ) {
+        throw new PlanDowngradeExceedsLimitsException(usage, newPlan);
+      }
     }
 
     const now = this.clock.now();

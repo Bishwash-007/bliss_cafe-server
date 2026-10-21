@@ -8,6 +8,8 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { LOGIN_LIMIT, MINUTE, REFRESH_LIMIT } from '../rate-limits';
 import type { RequestWithTenant } from '../tenant/interfaces/tenant-request.interface';
 import { TenantRequestContext } from '../tenant/connection/tenant-request-context';
 import { AuthService } from './auth.service';
@@ -22,6 +24,7 @@ import type {
 type AuthenticatedRequest = RequestWithTenant & { user?: AuthenticatedUser };
 
 @Controller('auth')
+@UseGuards(ThrottlerGuard)
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
@@ -29,6 +32,7 @@ export class AuthController {
   ) {}
 
   @UseGuards(LocalAuthGuard)
+  @Throttle({ default: { limit: LOGIN_LIMIT, ttl: MINUTE } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(@Req() req: AuthenticatedRequest): Promise<LoginResult> {
@@ -39,6 +43,7 @@ export class AuthController {
     return this.authService.login(this.tenantContext.getConnection(), user);
   }
 
+  @Throttle({ default: { limit: REFRESH_LIMIT, ttl: MINUTE } })
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(@Body() body: RefreshTokenDto): Promise<LoginResult> {

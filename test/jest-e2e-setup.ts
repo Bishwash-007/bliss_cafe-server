@@ -25,3 +25,16 @@ import https from 'node:https';
  */
 http.globalAgent = new http.Agent({ keepAlive: false });
 https.globalAgent = new https.Agent({ keepAlive: false });
+
+/**
+ * Rate limits are raised for the suite.
+ *
+ * The whole e2e run comes from ONE address (127.0.0.1), so a limit that is
+ * sensible in production — 20 logins a minute — is exhausted by the fixtures
+ * of a single spec file, and the suite would fail on 429s that have nothing to
+ * do with the behaviour under test. The limits are read from the environment
+ * per request, so raising them here is enough.
+ */
+process.env.AUTH_LOGIN_RATE_LIMIT = '10000';
+process.env.AUTH_REFRESH_RATE_LIMIT = '10000';
+process.env.ONBOARDING_RATE_LIMIT = '10000';

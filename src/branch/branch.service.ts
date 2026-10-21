@@ -22,11 +22,20 @@ import { TableNotFoundException } from './exceptions/table-not-found.exception';
 export class BranchService {
   constructor(private readonly repository: BranchRepository) {}
 
+  /**
+   * The tenant's branches.
+   *
+   * `branchId` narrows the list to a single branch. It is how a
+   * branch-confined caller (a branch manager, a waiter) is prevented from
+   * discovering the other branches of the same café: the tenant id alone does
+   * not confine a branch.
+   */
   listBranches(
     connection: TenantScopedConnection,
     tenantId: string,
+    branchId?: string,
   ): Promise<BranchRow[]> {
-    return this.repository.findAll(connection, tenantId);
+    return this.repository.findAll(connection, tenantId, branchId);
   }
 
   async createBranch(
