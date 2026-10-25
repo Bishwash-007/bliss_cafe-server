@@ -2,6 +2,8 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { getPaginationOffset, paginate } from '../common/dto/pagination.dto';
+import { PaginationQueryDto } from '../common/dto/pagination.dto';
 import { TenantRequestContext } from '../tenant/connection/tenant-request-context';
 import { TenantNotFoundException } from '../tenant/exceptions/tenant-not-found.exception';
 import { NotificationService } from './notification.service';
@@ -55,10 +57,31 @@ export class NotificationController {
   @Roles(...DEAD_LETTER_ROLES)
   async listDeadLetters(
     @Query('limit') limit?: string,
+    @Query() query?: PaginationQueryDto,
   ): Promise<DeadLetterListResponse> {
     const tenantId = this.tenantContext.tenantId;
     if (!tenantId) {
       throw new TenantNotFoundException();
+    }
+
+    if (query?.page !== undefined || query?.limit !== undefined) {
+      const page = query.page ?? 1;
+      const limitBounded = query.limit ?? 50;
+      // For queue-based DLQ, approximate pagination by slicing after fetch
+      const all = await this.notifications.listDeadLetters(
+        tenantId,
+        limitBounded * page + 100,
+      );
+      const total = all.length;
+      const offset = getPaginationOffset(page, limitBounded);
+      const data = all.slice(offset, offset + limitBounded);
+      const paginated = paginate(data, total, page, limitBounded);
+      return {
+        driver: this.notifications.driver,
+        count: paginated.total,
+        dead_letters: paginated.data,
+        ...paginated,
+      };
     }
 
     const parsed = Number(limit);

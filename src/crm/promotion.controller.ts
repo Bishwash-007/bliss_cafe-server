@@ -7,11 +7,15 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { assertOrgWide } from '../auth/branch-scope';
+import type { AuthenticatedUser } from '../auth/interfaces/auth.interface';
 import { TenantRequestContext } from '../tenant/connection/tenant-request-context';
 import type { TenantScopedConnection } from '../tenant/connection/tenant-scoped-connection';
 import type {
@@ -23,6 +27,8 @@ import type {
 } from './dto/crm.dto';
 import { CrmEventPublisher } from './events/crm-event.publisher';
 import { PromotionService } from './promotions/promotion.service';
+
+type AuthedRequest = Request & { user?: AuthenticatedUser };
 
 /** Who may apply a promotion at the till. */
 const PROMOTION_APPLY_ROLES = [
@@ -82,7 +88,8 @@ export class PromotionController {
 
   @Post()
   @Roles(...PROMOTION_WRITE_ROLES)
-  create(@Body() body: CreatePromotionDto) {
+  create(@Body() body: CreatePromotionDto, @Req() req: AuthedRequest) {
+    assertOrgWide(req.user);
     return this.promotions.create(this.connection(), body);
   }
 

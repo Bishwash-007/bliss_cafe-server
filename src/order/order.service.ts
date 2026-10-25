@@ -84,6 +84,30 @@ export class OrderService {
     return this.repository.listByBranch(connection, tenantId, branchId);
   }
 
+  listByBranchPaginated(
+    connection: TenantScopedConnection,
+    tenantId: string,
+    branchId: string,
+    limit: number,
+    offset: number,
+  ): Promise<OrderRow[]> {
+    return this.repository.listByBranchPaginated(
+      connection,
+      tenantId,
+      branchId,
+      limit,
+      offset,
+    );
+  }
+
+  countByBranch(
+    connection: TenantScopedConnection,
+    tenantId: string,
+    branchId: string,
+  ): Promise<number> {
+    return this.repository.countByBranch(connection, tenantId, branchId);
+  }
+
   /** The KDS snapshot: everything still in flight for one branch, oldest first. */
   listActiveByBranch(
     connection: TenantScopedConnection,
@@ -91,6 +115,30 @@ export class OrderService {
     branchId: string,
   ): Promise<OrderRow[]> {
     return this.repository.listActiveByBranch(connection, tenantId, branchId);
+  }
+
+  listActiveByBranchPaginated(
+    connection: TenantScopedConnection,
+    tenantId: string,
+    branchId: string,
+    limit: number,
+    offset: number,
+  ): Promise<OrderRow[]> {
+    return this.repository.listActiveByBranchPaginated(
+      connection,
+      tenantId,
+      branchId,
+      limit,
+      offset,
+    );
+  }
+
+  countActiveByBranch(
+    connection: TenantScopedConnection,
+    tenantId: string,
+    branchId: string,
+  ): Promise<number> {
+    return this.repository.countActiveByBranch(connection, tenantId, branchId);
   }
 
   // --------------------------------------------------------------- create

@@ -3,6 +3,16 @@ import type {
   NotificationMessage,
 } from '../notification.types';
 
+export type DeliveryStatus =
+  'delivered' | 'pending' | 'failed' | 'bounced' | 'complained';
+
+export interface DeliveryResult {
+  status: DeliveryStatus;
+  messageId?: string;
+  error?: string;
+  retryable?: boolean;
+}
+
 /**
  * The one contract every transport implements.
  *
@@ -17,5 +27,18 @@ import type {
  */
 export interface NotificationChannel {
   readonly name: NotificationChannelName;
-  send(recipient: string, message: NotificationMessage): Promise<void>;
+  send(
+    recipient: string,
+    message: NotificationMessage,
+  ): Promise<void | DeliveryResult>;
+}
+
+export interface NotificationAdapter {
+  readonly name: string;
+  readonly channel: NotificationChannelName;
+  send(
+    recipient: string,
+    message: NotificationMessage,
+    context?: Record<string, string>,
+  ): Promise<DeliveryResult>;
 }

@@ -14,6 +14,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { assertBranchAccess } from '../auth/branch-scope';
 import type { AuthenticatedUser } from '../auth/interfaces/auth.interface';
+import { getPaginationOffset, paginate } from '../common/dto/pagination.dto';
 import { TenantRequestContext } from '../tenant/connection/tenant-request-context';
 import type { TenantScopedConnection } from '../tenant/connection/tenant-scoped-connection';
 import type { CreateOrderDto, TransitionOrderDto } from './dto/order.dto';
@@ -141,15 +142,39 @@ export class OrderController {
     );
   }
 
-  /** Everything in flight for a branch, oldest first — the KDS snapshot. */
   @Get('branches/:branchId/active')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...ORDER_READ_ROLES)
   async listActive(
     @Param('branchId') branchId: string,
     @Req() req: AuthedRequest,
-  ): Promise<OrderRow[]> {
+  ) {
     assertBranchAccess(req.user, branchId, 'The branch');
+    const q = (req.query as Record<string, string | undefined>) || {};
+    if (
+      (q.page !== undefined && q.page !== '') ||
+      (q.limit !== undefined && q.limit !== '')
+    ) {
+      const page = q.page !== undefined && q.page !== '' ? Number(q.page) : 1;
+      const limit =
+        q.limit !== undefined && q.limit !== '' ? Number(q.limit) : 20;
+      const offset = getPaginationOffset(page, limit);
+      const [data, total] = await Promise.all([
+        this.orderService.listActiveByBranchPaginated(
+          this.connection,
+          this.tenantId,
+          branchId,
+          limit,
+          offset,
+        ),
+        this.orderService.countActiveByBranch(
+          this.connection,
+          this.tenantId,
+          branchId,
+        ),
+      ]);
+      return paginate(data, total, page, limit);
+    }
     return this.orderService.listActiveByBranch(
       this.connection,
       this.tenantId,
@@ -163,8 +188,33 @@ export class OrderController {
   async listByBranch(
     @Param('branchId') branchId: string,
     @Req() req: AuthedRequest,
-  ): Promise<OrderRow[]> {
+  ) {
     assertBranchAccess(req.user, branchId, 'The branch');
+    const q = (req.query as Record<string, string | undefined>) || {};
+    if (
+      (q.page !== undefined && q.page !== '') ||
+      (q.limit !== undefined && q.limit !== '')
+    ) {
+      const page = q.page !== undefined && q.page !== '' ? Number(q.page) : 1;
+      const limit =
+        q.limit !== undefined && q.limit !== '' ? Number(q.limit) : 20;
+      const offset = getPaginationOffset(page, limit);
+      const [data, total] = await Promise.all([
+        this.orderService.listByBranchPaginated(
+          this.connection,
+          this.tenantId,
+          branchId,
+          limit,
+          offset,
+        ),
+        this.orderService.countByBranch(
+          this.connection,
+          this.tenantId,
+          branchId,
+        ),
+      ]);
+      return paginate(data, total, page, limit);
+    }
     return this.orderService.listByBranch(
       this.connection,
       this.tenantId,

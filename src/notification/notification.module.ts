@@ -21,6 +21,12 @@ import {
   NOTIFICATION_QUEUE,
   type NotificationQueue,
 } from './queue/notification.queue';
+import { EmailAdapter } from './adapters/email.adapter';
+import { SmsAdapter } from './adapters/sms.adapter';
+import { PushAdapter } from './adapters/push.adapter';
+import { NotificationAdapterFactory } from './adapters/adapter-factory';
+import { NotificationTemplateService } from './templates/template.service';
+import { NotificationWebhookController } from './webhooks/notification-webhook.controller';
 
 const logger = new Logger('NotificationModule');
 
@@ -100,7 +106,7 @@ const notificationQueueProvider: Provider = {
  * written directly).
  */
 @Module({
-  controllers: [NotificationController],
+  controllers: [NotificationController, NotificationWebhookController],
   providers: [
     NotificationRepository,
     NotificationService,
@@ -120,12 +126,20 @@ const notificationQueueProvider: Provider = {
     OrderReadyNotificationListener,
     InventoryLowStockNotificationListener,
     CrmCustomerNotificationListener,
+
+    EmailAdapter,
+    SmsAdapter,
+    PushAdapter,
+    NotificationAdapterFactory,
+    NotificationTemplateService,
   ],
   exports: [
     NotificationService,
     NotificationFactory,
     NOTIFICATION_QUEUE,
     NOTIFICATION_DELIVERY_GATEWAY,
+    NotificationAdapterFactory,
+    NotificationTemplateService,
   ],
 })
 export class NotificationModule {}

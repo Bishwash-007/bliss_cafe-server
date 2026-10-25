@@ -243,6 +243,50 @@ export class OrderRepository {
       .then((result) => result.rows.map(toOrderRow));
   }
 
+  countActiveByBranch(
+    connection: TenantScopedConnection,
+    tenantId: string,
+    branchId: string,
+  ): Promise<number> {
+    if (!UUID_RE.test(branchId)) {
+      return Promise.resolve(0);
+    }
+    return connection
+      .query<{ count: string }>(
+        `SELECT count(*)::text AS count
+           FROM orders
+          WHERE tenant_id = $1
+            AND branch_id = $2
+            AND status NOT IN ('completed', 'cancelled')`,
+        [tenantId, branchId],
+      )
+      .then((result) => Number(result.rows[0]?.count ?? 0));
+  }
+
+  listActiveByBranchPaginated(
+    connection: TenantScopedConnection,
+    tenantId: string,
+    branchId: string,
+    limit: number,
+    offset: number,
+  ): Promise<OrderRow[]> {
+    if (!UUID_RE.test(branchId)) {
+      return Promise.resolve([]);
+    }
+    return connection
+      .query<OrderRow>(
+        `SELECT ${ORDER_COLUMNS}
+           FROM orders
+          WHERE tenant_id = $1
+            AND branch_id = $2
+            AND status NOT IN ('completed', 'cancelled')
+          ORDER BY created_at, id
+          LIMIT $3 OFFSET $4`,
+        [tenantId, branchId, limit, offset],
+      )
+      .then((result) => result.rows.map(toOrderRow));
+  }
+
   listByBranch(
     connection: TenantScopedConnection,
     tenantId: string,
@@ -258,6 +302,46 @@ export class OrderRepository {
           WHERE tenant_id = $1 AND branch_id = $2
           ORDER BY created_at DESC, id DESC`,
         [tenantId, branchId],
+      )
+      .then((result) => result.rows.map(toOrderRow));
+  }
+
+  countByBranch(
+    connection: TenantScopedConnection,
+    tenantId: string,
+    branchId: string,
+  ): Promise<number> {
+    if (!UUID_RE.test(branchId)) {
+      return Promise.resolve(0);
+    }
+    return connection
+      .query<{ count: string }>(
+        `SELECT count(*)::text AS count
+           FROM orders
+          WHERE tenant_id = $1 AND branch_id = $2`,
+        [tenantId, branchId],
+      )
+      .then((result) => Number(result.rows[0]?.count ?? 0));
+  }
+
+  listByBranchPaginated(
+    connection: TenantScopedConnection,
+    tenantId: string,
+    branchId: string,
+    limit: number,
+    offset: number,
+  ): Promise<OrderRow[]> {
+    if (!UUID_RE.test(branchId)) {
+      return Promise.resolve([]);
+    }
+    return connection
+      .query<OrderRow>(
+        `SELECT ${ORDER_COLUMNS}
+           FROM orders
+          WHERE tenant_id = $1 AND branch_id = $2
+          ORDER BY created_at DESC, id DESC
+          LIMIT $3 OFFSET $4`,
+        [tenantId, branchId, limit, offset],
       )
       .then((result) => result.rows.map(toOrderRow));
   }

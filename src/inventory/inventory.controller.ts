@@ -17,6 +17,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/auth.interface';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { assertBranchAccess } from '../auth/branch-scope';
 import { TenantRequestContext } from '../tenant/connection/tenant-request-context';
 import type { TenantScopedConnection } from '../tenant/connection/tenant-scoped-connection';
 import type {
@@ -143,6 +144,7 @@ export class InventoryController {
     @Body() body: CreateInventoryItemDto,
     @Req() req: AuthedRequest,
   ) {
+    assertBranchAccess(req.user, body.branchId, 'The branch');
     return this.service.createItem(this.connection(), this.actor(req), {
       branchId: body.branchId,
       name: body.name,
@@ -159,6 +161,9 @@ export class InventoryController {
     @Query('branchId') branchId: string | undefined,
     @Req() req: AuthedRequest,
   ) {
+    if (branchId) {
+      assertBranchAccess(req.user, branchId, 'The branch');
+    }
     return this.service.listItems(this.connection(), this.actor(req), branchId);
   }
 
@@ -177,11 +182,20 @@ export class InventoryController {
   @Post('items/:id/stock-in')
   @HttpCode(200)
   @Roles(...INVENTORY_WRITE_ROLES)
-  stockIn(
+  async stockIn(
     @Param('id') id: string,
     @Body() body: StockInDto,
     @Req() req: AuthedRequest,
   ) {
+    const item = (await this.service.getItem(
+      this.connection(),
+      this.actor(req),
+      id,
+    )) as { branchId?: string | null; branch_id?: string | null } | null;
+    const branchId = item?.branchId ?? item?.branch_id ?? null;
+    if (branchId) {
+      assertBranchAccess(req.user, branchId, 'The branch');
+    }
     return this.service.stockIn(
       this.connection(),
       this.actor(req),
@@ -197,18 +211,23 @@ export class InventoryController {
     );
   }
 
-  /**
-   * A stocktake correction. See `AdjustStockDto` for why the note is mandatory
-   * and why the delta is signed.
-   */
   @Post('items/:id/adjust')
   @HttpCode(200)
   @Roles(...INVENTORY_WRITE_ROLES)
-  adjustStock(
+  async adjustStock(
     @Param('id') id: string,
     @Body() body: AdjustStockDto,
     @Req() req: AuthedRequest,
   ) {
+    const item = (await this.service.getItem(
+      this.connection(),
+      this.actor(req),
+      id,
+    )) as { branchId?: string | null; branch_id?: string | null } | null;
+    const branchIdItem = item?.branchId ?? item?.branch_id ?? null;
+    if (branchIdItem) {
+      assertBranchAccess(req.user, branchIdItem, 'The branch');
+    }
     return this.service.adjustStock(
       this.connection(),
       this.actor(req),
