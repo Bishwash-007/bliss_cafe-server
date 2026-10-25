@@ -1,5 +1,5 @@
-import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { MINUTE, ONBOARDING_LIMIT } from '../rate-limits';
 import { hash } from 'bcryptjs';
 import { TenantRequestContext } from '../tenant/connection/tenant-request-context';
@@ -10,7 +10,6 @@ import {
 } from './tenant-onboarding.builder';
 
 @Controller('onboarding')
-@UseGuards(ThrottlerGuard)
 export class OrgController {
   constructor(private readonly tenantContext: TenantRequestContext) {}
 

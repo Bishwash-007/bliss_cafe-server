@@ -132,18 +132,25 @@ subscription state.
 
 ### Rate limiting
 
-Requests are counted per client address, per minute. Exceeding a limit answers
-`429` with a `Retry-After` header.
+Every route is rate limited. Requests are counted **per route and per client
+address**, per minute; exceeding a limit answers `429` with a `Retry-After`
+header and `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset`
+on every response.
 
 | Route | Default limit | Override |
 |---|---|---|
 | `POST /auth/login` | 20 / minute | `AUTH_LOGIN_RATE_LIMIT` |
 | `POST /auth/refresh` | 30 / minute | `AUTH_REFRESH_RATE_LIMIT` |
 | `POST /onboarding` | 10 / minute | `ONBOARDING_RATE_LIMIT` |
-| every other route | 300 / minute | — |
+| every other route | 300 / minute | `RATE_LIMIT_DEFAULT` |
 
 The login limiter counts **attempts**, not successes: a wrong password fills
 the bucket exactly like a right one.
+
+Behind a load balancer the client address comes from `X-Forwarded-For`, which
+only happens when `TRUST_PROXY` is set. Without it every request looks like it
+comes from the proxy, and the buckets become shared by the whole internet —
+set it in every deployment that has more than one client.
 
 ### CORS and security headers
 

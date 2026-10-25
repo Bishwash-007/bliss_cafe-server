@@ -1,13 +1,6 @@
-import { readdir, readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
 import { Pool } from 'pg';
-import {
-  checksumOf,
-  MigrationRunner,
-  parseMarkers,
-  type MigrationFile,
-} from './migration-runner';
+import { MigrationRunner, type MigrationReport } from './migration-runner';
+import { readMigrations, resolveMigrationsDir } from './migration-files';
 import { databaseConfigFromEnv } from '../tenant/connection/pg-pool.provider';
 
 /**
@@ -27,7 +20,24 @@ import { databaseConfigFromEnv } from '../tenant/connection/pg-pool.provider';
  *    refuses to guess about. The message says which file and why.
  */
 
-async function main(): Promise<void> {
+/** The parts of the command the outside world may replace. */
+export interface MigrationCommandOptions {
+  /** The pool to use; a real one is created when this is not given. */
+  readonly pool?: Pool;
+  /** Where the progress lines go. */
+  readonly log?: (message: string) => void;
+}
+
+/**
+ * Runs the migration command.
+ *
+ * The pool is injectable so the command can be exercised without a database.
+ */
+export async function runMigrationCommand(
+  options: MigrationCommandOptions = {},
+): Promise<MigrationReport> {
+  const log = options.log ?? console.log;
+
   const allowChecksumDrift = process.argv.includes('--allow-checksum-drift');
   const migrationsDir = resolveMigrationsDir();
 
@@ -36,82 +46,35 @@ async function main(): Promise<void> {
     throw new Error(`No migration files found in ${migrationsDir}`);
   }
 
-  const pool = new Pool(databaseConfigFromEnv());
+  const pool = options.pool ?? new Pool(databaseConfigFromEnv());
   const client = await pool.connect();
 
   try {
     const runner = new MigrationRunner(client, {
       allowChecksumDrift,
-      log: (message) => console.log(`[migrate] ${message}`),
+      log: (message) => log(`[migrate] ${message}`),
     });
 
     const report = await runner.run(files);
 
-    console.log(
+    log(
       `[migrate] ${report.applied.length} applied, ` +
         `${report.baselined.length} already in the schema, ` +
         `${report.skipped.length} already recorded.`,
     );
+    return report;
   } finally {
     client.release();
-    await pool.end();
-  }
-}
-
-/**
- * Finds `db/migrations`.
- *
- * The path is resolved by walking up from this file, so the same command
- * works from the source tree (`src/database`), from the compiled build
- * (`dist/database`) and from inside the runtime image, where the migrations
- * are copied next to `dist`.
- */
-function resolveMigrationsDir(): string {
-  const candidates: string[] = [];
-  let directory = __dirname;
-  for (let depth = 0; depth < 6; depth += 1) {
-    candidates.push(join(directory, 'db', 'migrations'));
-    const parent = dirname(directory);
-    if (parent === directory) {
-      break;
-    }
-    directory = parent;
-  }
-  candidates.push(resolve(process.cwd(), 'db', 'migrations'));
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
+    if (options.pool === undefined) {
+      await pool.end();
     }
   }
-
-  throw new Error(
-    'Could not find db/migrations. Run this from the project root, or from an ' +
-      'image that ships the db/ directory.',
-  );
 }
 
-/** Reads the migration files, in the order they must be applied. */
-async function readMigrations(directory: string): Promise<MigrationFile[]> {
-  const names = (await readdir(directory))
-    .filter((name) => name.endsWith('.sql'))
-    // The numeric prefix is the order: 002 before 010, and `10_` before `2_`.
-    .sort((left, right) => left.localeCompare(right, 'en'));
-
-  const files: MigrationFile[] = [];
-  for (const name of names) {
-    const sql = await readFile(join(directory, name), 'utf8');
-    files.push({
-      name,
-      sql,
-      checksum: checksumOf(sql),
-      markers: parseMarkers(sql),
-    });
-  }
-  return files;
+/* istanbul ignore next -- the process entry point */
+if (require.main === module) {
+  runMigrationCommand().catch((error: unknown) => {
+    console.error(`[migrate] ${(error as Error).message}`);
+    process.exitCode = 1;
+  });
 }
-
-main().catch((error: unknown) => {
-  console.error(`[migrate] ${(error as Error).message}`);
-  process.exitCode = 1;
-});

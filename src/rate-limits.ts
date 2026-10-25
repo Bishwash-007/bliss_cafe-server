@@ -28,6 +28,16 @@ function limitFromEnv(variable: string, fallback: number): number {
 export const MINUTE = 60_000;
 
 /**
+ * The limit every route inherits.
+ *
+ * It is generous on purpose: it is a floor against a runaway client, not a
+ * quota. The routes that really need a tighter number ask for one with
+ * `@Throttle`.
+ */
+export const DEFAULT_LIMIT = (): number =>
+  limitFromEnv('RATE_LIMIT_DEFAULT', 300);
+
+/**
  * `POST /auth/login`.
  *
  * The tightest limit in the app: it is the one route where an unlimited

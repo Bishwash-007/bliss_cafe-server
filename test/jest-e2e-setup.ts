@@ -38,3 +38,4 @@ https.globalAgent = new https.Agent({ keepAlive: false });
 process.env.AUTH_LOGIN_RATE_LIMIT = '10000';
 process.env.AUTH_REFRESH_RATE_LIMIT = '10000';
 process.env.ONBOARDING_RATE_LIMIT = '10000';
+process.env.RATE_LIMIT_DEFAULT = '10000';

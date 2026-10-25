@@ -126,6 +126,31 @@ describe('PlatformController (e2e)', () => {
     }
   });
 
+  it('answers 429 once the default rate limit is exceeded', async () => {
+    // The default limit applies to EVERY route, not only the ones that ask
+    // for a tighter one. It is read from the environment PER REQUEST, so it
+    // can be lowered for this test and restored afterwards.
+    const previous = process.env.RATE_LIMIT_DEFAULT;
+    process.env.RATE_LIMIT_DEFAULT = '2';
+
+    try {
+      const attempt = () =>
+        request(app.getHttpServer())
+          .get('/platform/tenants')
+          .set('Authorization', `Bearer ${tokenFor('super_admin')}`);
+
+      expect((await attempt()).status).toBe(200);
+      expect((await attempt()).status).toBe(200);
+      expect((await attempt()).status).toBe(429);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.RATE_LIMIT_DEFAULT;
+      } else {
+        process.env.RATE_LIMIT_DEFAULT = previous;
+      }
+    }
+  });
+
   afterEach(async () => {
     await app.get<{ end: () => Promise<void> }>(PG_POOL).end();
     await app.close();

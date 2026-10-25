@@ -145,7 +145,7 @@ export class OrderController {
   @Get('branches/:branchId/active')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...ORDER_READ_ROLES)
-  listActive(
+  async listActive(
     @Param('branchId') branchId: string,
     @Req() req: AuthedRequest,
   ): Promise<OrderRow[]> {
@@ -160,7 +160,7 @@ export class OrderController {
   @Get('branches/:branchId')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...ORDER_READ_ROLES)
-  listByBranch(
+  async listByBranch(
     @Param('branchId') branchId: string,
     @Req() req: AuthedRequest,
   ): Promise<OrderRow[]> {

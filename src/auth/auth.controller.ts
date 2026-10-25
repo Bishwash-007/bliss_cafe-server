@@ -8,7 +8,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { LOGIN_LIMIT, MINUTE, REFRESH_LIMIT } from '../rate-limits';
 import type { RequestWithTenant } from '../tenant/interfaces/tenant-request.interface';
 import { TenantRequestContext } from '../tenant/connection/tenant-request-context';
@@ -24,7 +24,6 @@ import type {
 type AuthenticatedRequest = RequestWithTenant & { user?: AuthenticatedUser };
 
 @Controller('auth')
-@UseGuards(ThrottlerGuard)
 export class AuthController {
   constructor(
     private readonly authService: AuthService,

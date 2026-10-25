@@ -108,6 +108,14 @@ services:
       # stack that does not use payments still starts; payment configuration
       # fails loudly at request time if it is missing.
       PAYMENT_CONFIG_ENCRYPTION_KEY: ${PAYMENT_CONFIG_ENCRYPTION_KEY:-}
+      # This stack runs with NODE_ENV=production, where an unset CORS_ORIGINS
+      # means NO browser origin is allowed. Pass it through so a developer can
+      # allow their local web client without editing the compose file.
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      # Only meaningful behind a load balancer; see the README.
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      # The per-route, per-client limit every route inherits.
+      RATE_LIMIT_DEFAULT: ${RATE_LIMIT_DEFAULT:-300}
     ports:
       - "${API_PORT:-3000}:3000"
     depends_on:

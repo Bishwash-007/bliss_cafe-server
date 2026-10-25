@@ -26,6 +26,17 @@ The runner is idempotent: a second run finds nothing to do. A database that
 was created by the old init-only mount is detected and baselined rather than
 re-created.
 
+Before a production deploy, set these — the API fails closed on the first two
+rather than starting in an insecure state:
+
+| Variable | Why |
+|---|---|
+| `JWT_SECRET` | Required in production; the app refuses to start without a secret of at least 32 characters, and refuses the development fallback. |
+| `CORS_ORIGINS` | A comma-separated allow-list. **Unset in production means no browser origin is allowed.** |
+| `TRUST_PROXY` | Set it behind a load balancer, or every request looks like it comes from the proxy and the rate-limiter buckets become shared by the whole internet. |
+| `RATE_LIMIT_DEFAULT` | The per-route, per-client limit every route inherits (300/min). Raise it for a café behind a NAT. |
+| `PAYMENT_CONFIG_ENCRYPTION_KEY` | 32 bytes. Without it, saving a payment provider fails loudly instead of storing plaintext. |
+
 The API reference is [`curl.md`](./curl.md) — every route, its roles, its
 branch scope, and the error codes it answers with.
 
